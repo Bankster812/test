@@ -25,6 +25,8 @@ import numpy as np
 
 from neuromorphic.brain import Brain
 from neuromorphic.safety.kernel import SafetyKernel
+from neuromorphic.safety.constraints import MotorConstraints
+from neuromorphic.safety.reflexes import ReflexLibrary
 
 from .encoders.financial_encoder import (
     FinancialEncoder,
@@ -99,7 +101,10 @@ class IBBrain(Brain):
         cfg = config if config is not None else _ib_cfg
 
         # Safety layer BEFORE Brain.__init__ (architectural invariant)
-        sk = safety_kernel or SafetyKernel(cfg)
+        # Use N_DOF from config so constraint shapes match the decoder output (32 for IB)
+        sk = safety_kernel or SafetyKernel(
+            MotorConstraints.default(n_dof=cfg.N_DOF), ReflexLibrary()
+        )
         super().__init__(config=cfg, safety_kernel=sk, seed=seed, verbose=verbose)
 
         n_m1 = self.regions["M1"].end - self.regions["M1"].start
@@ -277,25 +282,188 @@ class IBBrain(Brain):
         return result
 
     def _run_model(self, model_type: str, inputs: dict) -> dict | None:
+        from .models.dcf import DCFInputs, DCFModel
+        from .models.lbo import LBOInputs, LBOModel
+        from .models.merger import MergerInputs, MergerModel
+        from .models.comps import CompsInputs, CompsModel, CompanyData
+        from .models.precedents import PrecedentsInputs, PrecedentsModel, TransactionData
+        from .models.credit import CreditInputs, CreditModel
+
         mt = (model_type or "").lower()
+        g = inputs.get
+        M = 1e6   # convert _m inputs (millions) to absolute dollars for model
+
         try:
             if mt == "dcf":
-                return DCFModel.from_inputs(inputs).run()
+                rev_m = g("revenue_m", 500.0)
+                em    = g("ebitda_margin", 0.25)
+                inp = DCFInputs(
+                    ebitda           = g("ebitda_m", rev_m * em) * M,
+                    revenue          = rev_m * M,
+                    revenue_growth   = g("revenue_growth", 0.08),
+                    ebitda_margin    = em,
+                    wacc             = g("wacc", 0.10),
+                    terminal_growth  = g("terminal_growth", 0.025),
+                    tax_rate         = g("tax_rate", 0.25),
+                    capex_pct        = g("capex_pct_rev", 0.05),
+                    nwc_pct          = g("nwc_pct_rev", 0.03),
+                    depreciation_pct = g("da_pct_rev", 0.04),
+                    projection_years = int(g("projection_years", 5)),
+                    net_debt         = g("net_debt_m", 0.0) * M,
+                )
+                r = DCFModel().compute(inp)
+                ebitda_yr1 = r.projected_ebitda[0] if r.projected_ebitda else 1.0
+                return {
+                    "enterprise_value_m": r.enterprise_value / M,
+                    "equity_value_m":     (r.equity_value or 0.0) / M,
+                    "implied_ev_ebitda":  r.enterprise_value / max(ebitda_yr1, 1.0),
+                    "terminal_value_pct": r.pv_terminal / max(r.enterprise_value, 1.0) * 100,
+                    "sensitivity":        r.sensitivity_table.tolist() if hasattr(r.sensitivity_table, "tolist") else [],
+                    "sensitivity_waccs":  r.sensitivity_waccs,
+                    "sensitivity_tgs":    r.sensitivity_tgs,
+                }
+
             elif mt == "lbo":
-                return LBOModel.from_inputs(inputs).run()
+                rev_m = g("revenue_m", 500.0)
+                em    = g("ebitda_margin", 0.25)
+                ebt_m = g("ebitda_m", rev_m * em)
+                inp = LBOInputs(
+                    ebitda             = ebt_m * M,
+                    revenue            = rev_m * M,
+                    entry_ev_ebitda    = g("entry_multiple", 10.0),
+                    revenue_growth     = g("revenue_growth", 0.08),
+                    ebitda_margin_exit = g("ebitda_margin", em),
+                    leverage_ratio     = g("leverage", 6.0),
+                    senior_debt_rate   = g("interest_rate", 0.07),
+                    hold_period        = int(g("hold_years", 5)),
+                    exit_multiple      = g("exit_multiple", 12.0),
+                    tax_rate           = g("tax_rate", 0.25),
+                    capex_pct          = g("capex_pct_rev", 0.04),
+                    nwc_pct            = g("nwc_pct_rev", 0.03),
+                    depreciation_pct   = g("da_pct_rev", 0.03),
+                )
+                r = LBOModel().compute(inp)
+                return {
+                    "entry_ev_m":     r.entry_enterprise_value / M,
+                    "exit_ev_m":      r.exit_enterprise_value / M,
+                    "entry_equity_m": r.equity_contribution / M,
+                    "exit_equity_m":  r.exit_equity_value / M,
+                    "irr":            r.irr,
+                    "moic":           r.moic,
+                    "sensitivity":    r.sensitivity_irr.tolist() if hasattr(r.sensitivity_irr, "tolist") else [],
+                }
+
             elif mt == "merger":
-                return MergerModel.from_inputs(inputs).run()
+                inp = MergerInputs(
+                    acq_net_income   = g("acq_net_income_m", 200.0) * M,
+                    acq_shares       = g("acq_shares_m", 100.0) * M,
+                    acq_share_price  = g("acq_share_price", 40.0),
+                    acq_pe           = g("acq_pe", 20.0),
+                    tgt_net_income   = g("tgt_net_income_m", 50.0) * M,
+                    tgt_share_price  = g("tgt_share_price", 20.0),
+                    tgt_shares       = g("tgt_shares_m", 50.0) * M,
+                    premium_pct      = g("premium_pct", 30.0) / 100.0,
+                    cash_pct         = g("cash_pct", 0.5),
+                    stock_pct        = g("stock_pct", 0.5),
+                    annual_synergies = g("synergies_m", 0.0) * M,
+                    one_time_costs   = g("one_time_costs_m", 0.0) * M,
+                    tax_rate         = g("tax_rate", 0.25),
+                )
+                r = MergerModel().compute(inp)
+                return {
+                    "accretion_dilution_pct": r.accretion_dilution_pct,
+                    "pro_forma_eps":          r.pro_forma_eps_yr1,
+                    "exchange_ratio":         r.exchange_ratio,
+                    "offer_value_m":          r.offer_value / M,
+                    "breakeven_synergies_m":  r.breakeven_synergies / M,
+                }
+
             elif mt == "comps":
-                return CompsModel.from_inputs(inputs).run()
+                peers = g("peers", [
+                    CompanyData("Peer A", ev=1200*M, revenue=500*M, ebitda=100*M, ebit=85*M, net_income=60*M),
+                    CompanyData("Peer B", ev=2000*M, revenue=800*M, ebitda=160*M, ebit=135*M, net_income=90*M),
+                    CompanyData("Peer C", ev=900*M,  revenue=400*M, ebitda=75*M,  ebit=63*M,  net_income=45*M),
+                ])
+                rev_m = g("revenue_m", 500.0)
+                em    = g("ebitda_margin", 0.25)
+                target = CompanyData(
+                    name="Target",
+                    ev         = g("target_ev_m", rev_m * em * 10.0) * M,
+                    revenue    = rev_m * M,
+                    ebitda     = g("ebitda_m", rev_m * em) * M,
+                    ebit       = g("ebit_m", rev_m * em * 0.85) * M,
+                    net_income = g("net_income_m", rev_m * em * 0.5) * M,
+                )
+                inp = CompsInputs(target=target, comparables=peers)
+                r = CompsModel().compute(inp)
+                ev_eb_stats = r.stats.get("ev_ebitda", {})
+                lo, hi = r.implied_ev_range
+                return {
+                    "median_ev_ebitda":  ev_eb_stats.get("median", 0.0),
+                    "mean_ev_ebitda":    ev_eb_stats.get("mean", 0.0),
+                    "implied_ev_low_m":  lo / M,
+                    "implied_ev_high_m": hi / M,
+                    "stats":             r.stats,
+                }
+
             elif mt == "precedents":
-                return PrecedentsModel.from_inputs(inputs).run()
+                txns = g("transactions", [
+                    TransactionData("Deal A", 2022, "technology", 1500*M, 600*M, 120*M, premium_pct=0.32),
+                    TransactionData("Deal B", 2021, "technology", 1800*M, 700*M, 140*M, premium_pct=0.38),
+                    TransactionData("Deal C", 2020, "technology", 1200*M, 500*M, 100*M, premium_pct=0.28),
+                ])
+                rev_m = g("revenue_m", 500.0)
+                em    = g("ebitda_margin", 0.25)
+                inp = PrecedentsInputs(
+                    target_ebitda  = g("ebitda_m", rev_m * em) * M,
+                    target_revenue = rev_m * M,
+                    target_sector  = g("sector", "technology"),
+                    transactions   = txns,
+                    year_filter    = int(g("min_year", 2015)),
+                )
+                r = PrecedentsModel().compute(inp)
+                lo, hi = r.implied_ev_range
+                ev_stats = r.multiples.get("ev_ebitda", {})
+                return {
+                    "mean_premium_pct":  r.mean_premium * 100,
+                    "median_ev_ebitda":  ev_stats.get("median", 0.0),
+                    "implied_ev_low_m":  lo / M,
+                    "implied_ev_high_m": hi / M,
+                    "n_transactions":    len(r.filtered_transactions),
+                }
+
             elif mt == "credit":
-                return CreditModel.from_inputs(inputs).run()
+                rev_m = g("revenue_m", 500.0)
+                em    = g("ebitda_margin", 0.25)
+                ebt_m = g("ebitda_m", rev_m * em)
+                lev   = g("leverage", 5.0)
+                inp = CreditInputs(
+                    ebitda           = ebt_m * M,
+                    revenue          = rev_m * M,
+                    total_debt       = g("total_debt_m", ebt_m * lev) * M,
+                    cash             = g("cash_m", 50.0) * M,
+                    interest_expense = g("interest_m", ebt_m * lev * 0.07) * M,
+                    capex            = g("capex_m", rev_m * 0.05) * M,
+                    tax_rate         = g("tax_rate", 0.25),
+                    net_income       = g("net_income_m", ebt_m * 0.5) * M,
+                )
+                r = CreditModel().compute(inp)
+                return {
+                    "total_leverage":    r.leverage_total,
+                    "net_leverage":      r.leverage_net,
+                    "interest_coverage": r.interest_coverage,
+                    "dscr":              r.dscr,
+                    "implied_rating":    r.implied_rating,
+                    "risk_level":        r.risk_level,
+                    "covenant_headroom": r.covenant_headroom_pct,
+                }
+
             else:
                 logger.warning(f"Unknown model type: {mt}")
                 return None
+
         except Exception as e:
-            logger.error(f"Model {mt} failed: {e}")
+            logger.error(f"Model {mt} failed: {e}", exc_info=True)
             return {"error": str(e)}
 
     def _infer_model(self, qv: QueryVector) -> str:
@@ -420,7 +588,11 @@ class IBBrain(Brain):
             )
             for name, region in self.regions.items()
         }
-        daemon_status = self._daemon.status() if self._daemon else {"running": False}
+        daemon_running = False
+        daemon_str = "stopped"
+        if self._daemon:
+            daemon_str = self._daemon.status()      # returns a string
+            daemon_running = "running" in daemon_str
         return {
             "step_count":       self.step_count,
             "sim_time_s":       float(self.t),
@@ -429,7 +601,7 @@ class IBBrain(Brain):
             "firing_rates_hz":  rates,
             "deal_memory_size": len(self.deal_memory),
             "kb_concepts":      len(self.knowledge_base),
-            "learning_daemon":  daemon_status,
+            "learning_daemon":  {"running": daemon_running, "status": daemon_str},
         }
 
     def print_status(self) -> None:
@@ -449,10 +621,8 @@ class IBBrain(Brain):
             print(f"    {region:5s}: {rate:6.1f}  {bar}")
         d = s["learning_daemon"]
         print(f"\n  Daemon: {'RUNNING' if d.get('running') else 'stopped'}")
-        if d.get("running"):
-            print(f"    Sessions: {d.get('sessions', 0)}  "
-                  f"Articles: {d.get('articles', 0)}  "
-                  f"Videos:   {d.get('videos', 0)}")
+        if d.get("status"):
+            print(f"    {d['status']}")
         print("=" * 60 + "\n")
 
     # ------------------------------------------------------------------
