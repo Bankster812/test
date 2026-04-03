@@ -1,2 +1,3 @@
-neuromorphic/__pycache__/
-neuromorphic/*/__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
