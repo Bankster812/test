@@ -1,4 +1,5 @@
 from neuromorphic.domains.investment_banking.safety.financial_constraints import (
-    FinancialConstraints, FinancialSafetyKernel
+    FinancialSafetyKernel,
+    ConstraintViolation,
 )
-__all__ = ["FinancialConstraints", "FinancialSafetyKernel"]
+__all__ = ["FinancialSafetyKernel", "ConstraintViolation"]
