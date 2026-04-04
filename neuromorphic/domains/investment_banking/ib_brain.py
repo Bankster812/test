@@ -103,7 +103,7 @@ class IBBrain(Brain):
         # Safety layer BEFORE Brain.__init__ (architectural invariant)
         # Use N_DOF from config so constraint shapes match the decoder output (32 for IB)
         sk = safety_kernel or SafetyKernel(
-            MotorConstraints.default(n_dof=cfg.N_DOF), ReflexLibrary()
+            MotorConstraints.default(n_dof=cfg.N_DOF), ReflexLibrary(n_dof=cfg.N_DOF)
         )
         super().__init__(config=cfg, safety_kernel=sk, seed=seed, verbose=verbose)
 
