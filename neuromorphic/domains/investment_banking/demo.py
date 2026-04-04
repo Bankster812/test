@@ -103,12 +103,16 @@ def run_demo():
         print(f"  EV/EBITDA implied:        {dcf_result.get('implied_ev_ebitda', 0):.1f}x")
         tv_pct = dcf_result.get("terminal_value_pct", 0)
         print(f"  Terminal value % of EV:   {tv_pct:.1f}%")
-        if "sensitivity" in dcf_result:
-            print(f"\n  Sensitivity (EV $M, WACC rows × TGR cols):")
-            sens = dcf_result["sensitivity"]
-            if isinstance(sens, list):
-                for row in sens[:3]:
-                    print(f"    {row}")
+        if "sensitivity_m" in dcf_result:
+            print(f"\n  Sensitivity (EV $M, WACC rows × terminal growth cols):")
+            waccs = dcf_result.get("sensitivity_waccs", [])
+            tgs   = dcf_result.get("sensitivity_tgs", [])
+            sens  = dcf_result["sensitivity_m"]
+            if tgs:
+                print(f"    TGR →  " + "  ".join(f"{t*100:.1f}%" for t in tgs))
+            for i, row in enumerate(sens[:5]):
+                w_label = f"WACC {waccs[i]*100:.1f}%:" if i < len(waccs) else f"Row {i}:"
+                print(f"    {w_label}  " + "  ".join(f"${v:.0f}M" for v in row))
     else:
         print(f"  [DCF error: {dcf_result['error']}]")
 

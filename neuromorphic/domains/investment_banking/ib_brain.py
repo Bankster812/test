@@ -312,13 +312,14 @@ class IBBrain(Brain):
                     net_debt         = g("net_debt_m", 0.0) * M,
                 )
                 r = DCFModel().compute(inp)
-                ebitda_yr1 = r.projected_ebitda[0] if r.projected_ebitda else 1.0
+                ebitda_yr1 = r.projected_ebitda[0] if r.projected_ebitda else M
+                sens = (r.sensitivity_table / M).tolist() if hasattr(r.sensitivity_table, "tolist") else []
                 return {
                     "enterprise_value_m": r.enterprise_value / M,
-                    "equity_value_m":     (r.equity_value or 0.0) / M,
+                    "equity_value_m":     (r.equity_value or r.enterprise_value) / M,
                     "implied_ev_ebitda":  r.enterprise_value / max(ebitda_yr1, 1.0),
                     "terminal_value_pct": r.pv_terminal / max(r.enterprise_value, 1.0) * 100,
-                    "sensitivity":        r.sensitivity_table.tolist() if hasattr(r.sensitivity_table, "tolist") else [],
+                    "sensitivity_m":      sens,
                     "sensitivity_waccs":  r.sensitivity_waccs,
                     "sensitivity_tgs":    r.sensitivity_tgs,
                 }
@@ -584,7 +585,7 @@ class IBBrain(Brain):
         rates = {
             name: float(
                 self.neurons.spikes[region.start:region.end].mean()
-                * 1000 / self.cfg.DT
+                / self.cfg.DT
             )
             for name, region in self.regions.items()
         }
