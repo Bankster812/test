@@ -163,16 +163,34 @@ class IBBrain(Brain):
         qv = self.query_engine.parse(text)
 
         # ── 2. Knowledge base shortcut ─────────────────────────────────
-        if qv.intent == "knowledge" and qv.entities:
+        # For explanation/knowledge intents always return text, never run a model
+        if qv.intent in ("knowledge", "explanation"):
+            # Try entity-level KB lookups first
+            kb_texts = []
             for entity in qv.entities:
                 kb_entry = self.knowledge_base.lookup(entity)
                 if kb_entry:
-                    answer = str(kb_entry)
-                    return IBResponse(
-                        answer_text  = answer,
-                        parameters   = self._zero_params(),
-                        confidence   = 0.95,
-                    )
+                    kb_texts.append(str(kb_entry))
+            # Also search by raw query terms if nothing found yet
+            if not kb_texts:
+                results = self.knowledge_base.search(qv.raw_text, top_k=2)
+                for entry in results:
+                    kb_texts.append(str(entry))
+            if kb_texts:
+                return IBResponse(
+                    answer_text  = "\n\n".join(kb_texts),
+                    parameters   = self._zero_params(),
+                    confidence   = 0.95,
+                )
+            # No KB match → return a generic explanatory prompt without running a model
+            return IBResponse(
+                answer_text  = (
+                    f"I don't have a detailed entry for that concept yet. "
+                    f"Try asking 'what is WACC?' or 'explain LBO steps'."
+                ),
+                parameters   = self._zero_params(),
+                confidence   = 0.3,
+            )
 
         # Merge numerics: query > user_inputs (user_inputs are overrides)
         merged_inputs = {**qv.numerical_values, **user_inputs}
@@ -217,7 +235,7 @@ class IBBrain(Brain):
             self._m1_history.push(m1_spikes)
 
             if verbose and step_i % 50 == 0:
-                fr = m1_spikes.mean() * 1000 / self.cfg.DT
+                fr = m1_spikes.mean() / self.cfg.DT
                 print(f"  step {step_i}/{n_steps}  M1={fr:.1f}Hz")
 
         # ── 5. Decode M1 → FinancialParams ────────────────────────────

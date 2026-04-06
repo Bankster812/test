@@ -11,9 +11,10 @@ Supported intents
   lbo         — LBO, leveraged buyout, returns, IRR, MOIC
   structuring — M&A mechanics, accretion/dilution, synergies, exchange ratio
   credit      — leverage, coverage, covenants, rating
+  explanation — explain / describe / walk me through / what are the steps
   model_build — "build me a ...", "run a ...", "calculate ..."
   risk        — risk analysis, flags, red flags, stress test
-  knowledge   — definition, explain, what is, how does
+  knowledge   — definition, what is, how does
   general     — catch-all
 
 Usage
@@ -54,6 +55,9 @@ class QueryVector:
 
 # Intent keywords — higher specificity listed first
 _INTENT_PATTERNS = [
+    # explanation intent: user wants a text explanation, NOT a model run
+    # Must come BEFORE model_build so "explain DCF steps" → explanation, not model_build
+    ("explanation",  r"\b(explain|describe|walk\s+me\s+through|what\s+are\s+the\s+steps|overview\s+of|how\s+does\s+a|how\s+do\s+you|tell\s+me\s+how|give\s+me\s+an?\s+overview|summarize|summarise)\b"),
     ("model_build",  r"\b(build|run|calculate|compute|model|create|generate|make)\b.*\b(dcf|lbo|comps?|merger|accretion|precedent|credit|valuation|model)\b"),
     ("model_build",  r"\b(dcf|lbo|comps?|merger|precedent|credit)\s+(model|analysis|valuation|run|calc)\b"),
     ("lbo",          r"\b(lbo|leveraged\s+buyout|private\s+equity|buyout|irr|moic|money.on.money|exit\s+multiple|entry\s+multiple|sponsor|pe\s+deal)\b"),
@@ -61,7 +65,7 @@ _INTENT_PATTERNS = [
     ("credit",       r"\b(leverage|covenant|interest\s+coverage|dscr|debt\s+service|credit\s+rating|high\s+yield|investment\s+grade|net\s+debt)\b"),
     ("valuation",    r"\b(wacc|dcf|terminal\s+value|enterprise\s+value|equity\s+value|ev.ebitda|ev.revenue|comps?|trading\s+comps?|precedent|football\s+field|multiple|valuation)\b"),
     ("risk",         r"\b(risk|red\s+flag|stress\s+test|downside|worst\s+case|covenant\s+breach|default|danger|concern|warning)\b"),
-    ("knowledge",    r"\b(what\s+is|what\s+are|define|explain|how\s+does|how\s+do|meaning\s+of|tell\s+me\s+about|definition)\b"),
+    ("knowledge",    r"\b(what\s+is|what\s+are|define|how\s+does|how\s+do|meaning\s+of|tell\s+me\s+about|definition)\b"),
 ]
 
 _MODEL_PATTERNS = {

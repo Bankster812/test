@@ -181,6 +181,14 @@ class SynapsePool:
         fired_pre  = np.where(pre_spikes_local)[0]
         fired_post = np.where(post_spikes_local)[0]
 
+        # Guard against out-of-bounds indices (can occur on Windows/numpy 2.x
+        # when the local spike array has a different dtype or stride interpretation)
+        n_pre, n_post = self.W.shape
+        if len(fired_pre) > 0:
+            fired_pre = fired_pre[fired_pre < n_pre]
+        if len(fired_post) > 0:
+            fired_post = fired_post[fired_post < n_post]
+
         # -- Tier 2+3: LTP (pre fires → strengthen post-synaptic response) --
         if len(fired_pre) > 0:
             for i in fired_pre:
