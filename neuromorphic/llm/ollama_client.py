@@ -23,7 +23,8 @@ from typing import Iterator
 logger = logging.getLogger("neuromorphic.llm")
 
 _DEFAULT_URL   = "http://localhost:11434"
-_DEFAULT_MODEL = "deepseek-r1:14b"
+_DEFAULT_MODEL = "llama3.1:8b"    # best speed/quality on CPU-only (4.7 GB)
+                                   # deepseek-r1:14b available via --model but needs GPU for speed
 
 
 def _strip_thinking(text: str) -> str:
@@ -44,7 +45,7 @@ class OllamaClient:
         self,
         base_url: str  = _DEFAULT_URL,
         model: str     = _DEFAULT_MODEL,
-        timeout: int   = 120,
+        timeout: int   = 180,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.model    = model

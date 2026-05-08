@@ -928,7 +928,7 @@ def main() -> None:
     parser.add_argument('--port',  type=int,   default=8000,          help='HTTP port (default 8000)')
     parser.add_argument('--scale', type=float, default=0.15,          help='Brain scale (default 0.15 = 150K neurons)')
     parser.add_argument('--demo',  action='store_true',               help='Force demo mode (no IBBrain init)')
-    parser.add_argument('--model', type=str,   default='deepseek-r1:14b', help='Ollama model name')
+    parser.add_argument('--model', type=str,   default='llama3.1:8b', help='Ollama model name')
     parser.add_argument('--no-llm', action='store_true',              help='Disable Ollama integration')
     args = parser.parse_args()
 
