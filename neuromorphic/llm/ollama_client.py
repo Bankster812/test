@@ -23,7 +23,15 @@ from typing import Iterator
 logger = logging.getLogger("neuromorphic.llm")
 
 _DEFAULT_URL   = "http://localhost:11434"
-_DEFAULT_MODEL = "llama3.2:3b"
+_DEFAULT_MODEL = "deepseek-r1:14b"
+
+
+def _strip_thinking(text: str) -> str:
+    """Remove DeepSeek-R1 <think>...</think> chain-of-thought blocks."""
+    import re
+    # Remove everything between <think> and </think> (including the tags)
+    cleaned = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
+    return cleaned.strip()
 
 
 class OllamaClient:
@@ -75,11 +83,13 @@ class OllamaClient:
         prompt: str,
         system: str | None = None,
         temperature: float = 0.7,
-        max_tokens: int    = 512,
+        max_tokens: int    = 1024,
     ) -> str | None:
         """
         Blocking single-shot generation.
         Returns the response string, or None on failure.
+        For DeepSeek-R1 style models the <think>...</think> chain-of-thought
+        block is automatically stripped so only the final answer is returned.
         """
         payload: dict = {
             "model":  self.model,
@@ -88,7 +98,7 @@ class OllamaClient:
             "options": {
                 "temperature":   temperature,
                 "num_predict":   max_tokens,
-                "num_ctx":       4096,
+                "num_ctx":       8192,
             },
         }
         if system:
@@ -106,7 +116,8 @@ class OllamaClient:
             try:
                 with urllib.request.urlopen(req, timeout=self.timeout) as resp:
                     result = json.loads(resp.read())
-                    return result.get("response", "").strip()
+                    text   = result.get("response", "").strip()
+                    return _strip_thinking(text)
             except urllib.error.URLError as e:
                 logger.warning(f"Ollama unavailable: {e}")
                 return None
