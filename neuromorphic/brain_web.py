@@ -1113,6 +1113,7 @@ def main() -> None:
     parser.add_argument('--demo',  action='store_true',               help='Force demo mode (no IBBrain init)')
     parser.add_argument('--model',      type=str, default='llama3.1:8b', help='Ollama model name')
     parser.add_argument('--no-llm',    action='store_true',             help='Disable all LLM integration')
+    parser.add_argument('--groq-key',   type=str, default='',           help='Groq API key (or set GROQ_API_KEY env var)')
     parser.add_argument('--nvidia-key', type=str, default='',           help='NVIDIA NIM API key (or set NVIDIA_API_KEY env var)')
     args = parser.parse_args()
 
@@ -1148,6 +1149,21 @@ def main() -> None:
         except ImportError:
             pass
 
+    # ── Groq setup (fastest free option — Llama 3.3 70B at 800 tok/s) ──────────
+    groq_client = None
+    if not args.no_llm:
+        try:
+            from neuromorphic.llm.groq_client import GroqClient
+            groq_key    = args.groq_key or os.environ.get("GROQ_API_KEY", "")
+            groq_client = GroqClient(api_key=groq_key)
+            if groq_client.is_available():
+                print(f'[brain_web] Groq: {groq_client.model} ✓  (70B, ~800 tok/s, free)')
+            else:
+                print('[brain_web] Groq: no key set  (get free key at console.groq.com)')
+                groq_client = None
+        except ImportError:
+            pass
+
     # ── NVIDIA NIM setup ──────────────────────────────────────────────────────
     nvidia_client = None
     nvidia_key    = args.nvidia_key or os.environ.get("NVIDIA_API_KEY", "")
@@ -1170,6 +1186,7 @@ def main() -> None:
     try:
         from neuromorphic.personality.entity import ElectronicLifeForm
         entity = ElectronicLifeForm(
+            groq_client   = groq_client,
             nvidia_client = nvidia_client,
             ollama_client = ollama_client,
             sim_thread    = sim,

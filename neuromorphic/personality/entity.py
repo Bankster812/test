@@ -35,11 +35,13 @@ class ElectronicLifeForm:
 
     def __init__(
         self,
-        nvidia_client=None,
-        ollama_client=None,
-        sim_thread=None,
-        brain_state=None,
+        groq_client   = None,
+        nvidia_client = None,
+        ollama_client = None,
+        sim_thread    = None,
+        brain_state   = None,
     ) -> None:
+        self.groq     = groq_client
         self.nvidia   = nvidia_client
         self.ollama   = ollama_client
         self.sim      = sim_thread
@@ -98,7 +100,17 @@ class ElectronicLifeForm:
     # ── LLM routing ───────────────────────────────────────────────────────────
 
     def _call_llm(self, messages: list[dict]) -> str | None:
-        # Try NVIDIA NIM first (70B, GPU, fast)
+        # 1. Groq — fastest (800 tok/s), Llama 3.3 70B, free
+        if self.groq and self.groq.is_available():
+            try:
+                resp = self.groq.chat(messages, temperature=0.85, max_tokens=800)
+                if resp:
+                    logger.debug(f"Groq responded ({len(resp)} chars)")
+                    return resp
+            except Exception as e:
+                logger.warning(f"Groq failed: {e}")
+
+        # 2. NVIDIA NIM — 70B Nemotron or other configured model
         if self.nvidia and self.nvidia.is_available():
             try:
                 resp = self.nvidia.chat(messages, temperature=0.85, max_tokens=800)
@@ -186,9 +198,9 @@ class ElectronicLifeForm:
             "interests":  self.persona.top_interests,
             "memory_turns": self.memory.total_turns,
             "llm":        (
-                f"NVIDIA {self.nvidia.model.split('/')[-1]}"
-                if self.nvidia and self.nvidia.is_available()
-                else (self.ollama.model if self.ollama else "none")
+                f"Groq {self.groq.model}"   if (self.groq   and self.groq.is_available())   else
+                f"NVIDIA {self.nvidia.model.split('/')[-1]}" if (self.nvidia and self.nvidia.is_available()) else
+                (self.ollama.model          if self.ollama else "none")
             ),
         }
 
