@@ -113,12 +113,12 @@ class GenericLLMClient:
 
     @classmethod
     def nvidia(cls, api_key: str | None = None) -> "GenericLLMClient":
-        """NVIDIA NIM — Llama 3.3 70B Instruct."""
+        """NVIDIA NIM — Nemotron 3 Super 120B (MoE, fastest+strongest free NIM)."""
         return cls(
             base_url = "https://integrate.api.nvidia.com/v1",
             api_key  = api_key or os.environ.get("NVIDIA_API_KEY", ""),
-            model    = "meta/llama-3.3-70b-instruct",
-            name     = "NVIDIA Llama 3.3 70B",
+            model    = "nvidia/nemotron-3-super-120b-a12b",
+            name     = "NVIDIA Nemotron 3 Super 120B",
         )
 
     # ── availability ──────────────────────────────────────────────────────────
