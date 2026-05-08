@@ -119,6 +119,7 @@ class SimulationThread(threading.Thread):
         self._run_demo()
 
     def _run_brain(self, brain) -> None:
+        self._brain = brain   # expose for query handler
         step = 0
         while not self._stop_event.is_set():
             t0 = time.perf_counter()
@@ -686,6 +687,92 @@ animate();
 """
 
 # ---------------------------------------------------------------------------
+# Keyword-based IB fallback (no imports needed)
+# ---------------------------------------------------------------------------
+
+_IB_KNOWLEDGE: dict[str, str] = {
+    "dcf": (
+        "DCF (Discounted Cash Flow) for a private company — key steps:\n"
+        "1. Project unlevered free cash flows (UFCF) for 5–10 years\n"
+        "   UFCF = EBIT × (1-tax) + D&A − CapEx − ΔNWC\n"
+        "2. Estimate WACC — harder for privates because no observable beta;\n"
+        "   use comparable public company betas, unlever/relever for target cap structure\n"
+        "3. Calculate Terminal Value: Gordon Growth (TV = FCF_n × (1+g) / (WACC−g))\n"
+        "   or Exit Multiple (TV = EBITDA_n × EV/EBITDA_peer)\n"
+        "4. Discount all cash flows + TV back to today at WACC\n"
+        "5. Add non-operating assets, subtract net debt → Equity Value\n"
+        "6. Apply private-company discounts: DLOM (10–30%) for illiquidity,\n"
+        "   minority discount if valuing < 50% stake\n"
+        "Key private-company adjustments: normalise owner compensation,\n"
+        "add back personal expenses, adjust for related-party transactions."
+    ),
+    "lbo": (
+        "LBO (Leveraged Buyout) — core mechanics:\n"
+        "1. Acquisition funded ~60–70% debt, 30–40% sponsor equity\n"
+        "2. Debt tranches: senior secured (Term Loan A/B), subordinated, sometimes mezzanine\n"
+        "3. Target: strong, stable FCF to service debt; asset-light preferred\n"
+        "4. Hold period typically 3–7 years\n"
+        "5. Returns driven by: leverage paydown, EBITDA growth, multiple expansion\n"
+        "6. Key metrics: IRR (target 20–25%+), MOIC (2.0–3.0x+)\n"
+        "7. Entry multiple (EV/EBITDA) vs exit multiple → delta drives returns\n"
+        "   IRR sensitivity: +1x exit multiple ≈ +3–5% IRR at 5-year hold"
+    ),
+    "wacc": (
+        "WACC = (E/V)×Ke + (D/V)×Kd×(1−t)\n"
+        "• Ke (cost of equity) = Rf + β×ERP + size premium\n"
+        "  Rf: 10-yr govt bond; ERP: ~5–6% US; β: peer-levered avg, then unlever/relever\n"
+        "• Kd (cost of debt) = yield on existing debt or new issue rate, pre-tax\n"
+        "• E/V, D/V: target capital structure (not current)\n"
+        "For private companies: add company-specific risk premium (1–3%).\n"
+        "Typical WACC ranges: tech 10–14%, industrials 8–11%, utilities 6–8%."
+    ),
+    "ebitda": (
+        "EBITDA = Earnings Before Interest, Tax, Depreciation & Amortisation\n"
+        "= Net Income + Interest + Tax + D&A\n"
+        "Used as a proxy for operating cash flow and for EV/EBITDA multiples.\n"
+        "Adjusted EBITDA: add back non-recurring items (restructuring, one-off legal,\n"
+        "stock-based comp sometimes). Bankers scrutinise adjustments carefully.\n"
+        "Typical EV/EBITDA multiples by sector:\n"
+        "  Tech/SaaS: 12–25×  |  Healthcare: 10–16×  |  Industrials: 7–10×"
+    ),
+    "merger": (
+        "Merger Analysis (Accretion/Dilution):\n"
+        "1. Pro-forma EPS = (Acquirer NI + Target NI + synergies − dis-synergies\n"
+        "                    − incremental interest − amortisation of intangibles) \n"
+        "                  / pro-forma diluted shares\n"
+        "2. Accretive if pro-forma EPS > standalone acquirer EPS\n"
+        "3. Stock deal: exchange ratio = offer price / acquirer share price\n"
+        "4. Breakeven synergies: minimum synergies to make deal neutral\n"
+        "5. Contribution analysis: what % of combined revenue/EBITDA each party brings\n"
+        "   vs what % of equity each gets"
+    ),
+    "credit": (
+        "Credit / Leverage Analysis:\n"
+        "• Leverage: Net Debt / EBITDA — investment grade <2×, HY 4–6×, LBO 5–7×\n"
+        "• Interest Coverage: EBITDA / Interest Expense — banks want >3×\n"
+        "• DSCR (Debt Service Coverage): (EBITDA − CapEx) / (Interest + Amort)\n"
+        "• Fixed Charge Coverage: EBITDA / (Interest + rent + scheduled principal)\n"
+        "• Covenants: maintenance (tested quarterly) vs incurrence (tested on actions)\n"
+        "• Key covenant levels: leverage ≤ 4.5×, coverage ≥ 3.0× typical"
+    ),
+}
+
+def _ib_keyword_response(query: str) -> str:
+    q = query.lower()
+    # Match longest keyword first
+    for kw, text in sorted(_IB_KNOWLEDGE.items(), key=lambda x: -len(x[0])):
+        if kw in q:
+            return text
+    # Generic fallback
+    return (
+        f'Query received: "{query}"\n'
+        "No specific knowledge entry matched. Try asking about:\n"
+        "DCF, LBO, WACC, EBITDA, merger accretion/dilution, or credit analysis.\n"
+        "Run without --demo for full neural IB responses."
+    )
+
+
+# ---------------------------------------------------------------------------
 # HTTP Handler
 # ---------------------------------------------------------------------------
 
@@ -693,6 +780,7 @@ class BrainHTTPHandler(BaseHTTPRequestHandler):
     """Serves the brain web UI and JSON state."""
 
     brain_state: BrainState  # set by main()
+    _sim_thread: 'SimulationThread | None' = None  # set by main()
 
     def log_message(self, fmt, *args):  # suppress access logs
         pass
@@ -743,15 +831,41 @@ class BrainHTTPHandler(BaseHTTPRequestHandler):
 
             # Dispatch to brain in background thread
             state = self.brain_state
+            sim   = BrainHTTPHandler._sim_thread  # set by main()
+
             def _handle(q):
-                # Try IBBrain query; fall back to canned response
-                resp = f'Processing: "{q}" — no live brain connected (demo mode).'
+                # 1. Real IBBrain if simulation thread has one loaded
+                if sim is not None and getattr(sim, '_brain', None) is not None:
+                    try:
+                        result = sim._brain.query(q)
+                        state.set_response(q, result.answer_text)
+                        return
+                    except Exception as e:
+                        pass
+
+                # 2. Lightweight: QueryEngine + KnowledgeBase (pure Python, no neural sim)
                 try:
-                    from neuromorphic.ib_brain import IBBrain  # type: ignore
-                    # If IBBrain was imported, it would be used here
+                    from neuromorphic.domains.investment_banking.query.query_engine import QueryEngine
+                    from neuromorphic.domains.investment_banking.knowledge.knowledge_base import KnowledgeBase
+                    qe = QueryEngine()
+                    kb = KnowledgeBase()
+                    qv = qe.parse(q)
+                    texts = []
+                    for entity in qv.entities:
+                        entry = kb.lookup(entity)
+                        if entry:
+                            texts.append(str(entry))
+                    if not texts:
+                        results = kb.search(q, top_k=2)
+                        texts = [str(r) for r in results]
+                    if texts:
+                        state.set_response(q, '\n\n'.join(texts))
+                        return
                 except Exception:
                     pass
-                state.set_response(q, resp)
+
+                # 3. Smart keyword fallback — real IB content without any imports
+                state.set_response(q, _ib_keyword_response(q))
 
             threading.Thread(target=_handle, args=(query,), daemon=True).start()
 
@@ -782,9 +896,10 @@ def main() -> None:
     sim = SimulationThread(state, demo=args.demo, scale=args.scale)
     sim.start()
 
-    # Bind handler to state via class attribute
+    # Bind handler to state and sim thread via class attributes
     handler = BrainHTTPHandler
     handler.brain_state = state
+    handler._sim_thread = sim
 
     server = HTTPServer(('', args.port), handler)
     url = f'http://localhost:{args.port}/'
