@@ -1,12 +1,18 @@
 #!/usr/bin/env python3
 """
-brain_web.py — HTTP server for Three.js 3D brain visualization.
+brain_web.py — Neuromorphic Brain: 3D Visualization + Electronic Life Form
+===========================================================================
 Run:  python -m neuromorphic.brain_web [--port 8000] [--demo]
+      NVIDIA_API_KEY=nvapi-xxx python -m neuromorphic.brain_web --demo
+
+Set NVIDIA_API_KEY to enable Llama-3.1-Nemotron-70B (GPT-4 class, free tier).
+Without it, falls back to local Ollama llama3.1:8b.
 """
 
 import argparse
 import json
 import math
+import os
 import random
 import threading
 import time
@@ -211,17 +217,43 @@ _HTML = r"""<!DOCTYPE html>
   .concept-pct{color:#7eb8ff}
   .concept-bar-bg{background:rgba(100,150,255,0.15);border-radius:3px;height:5px;overflow:hidden}
   .concept-bar{background:linear-gradient(90deg,#2979ff,#7eb8ff);height:5px;transition:width .4s}
-  #query-area{position:absolute;bottom:18px;left:50%;transform:translateX(-50%);
-              text-align:center;min-width:340px;max-width:480px;z-index:20}
-  #query-row{display:flex;gap:8px;margin-bottom:8px}
-  #qinput{flex:1;background:rgba(10,12,40,0.9);border:1px solid rgba(100,150,255,0.35);
-          border-radius:6px;color:#cce4ff;padding:7px 12px;font-size:13px;outline:none}
-  #qinput:focus{border-color:rgba(100,150,255,0.7);box-shadow:0 0 8px rgba(41,121,255,0.3)}
-  #qbtn{background:rgba(41,121,255,0.2);border:1px solid rgba(41,121,255,0.5);
-        border-radius:6px;color:#7eb8ff;padding:7px 18px;cursor:pointer;font-size:13px;
-        transition:background .2s}
-  #qbtn:hover{background:rgba(41,121,255,0.4)}
-  #qresponse{font-size:12px;color:#aac4ff;min-height:18px;padding:4px 0}
+  /* ── Chat panel ── */
+  #chat-panel{position:absolute;bottom:0;left:50%;transform:translateX(-50%);
+              width:580px;max-width:96vw;z-index:20;display:flex;flex-direction:column;
+              background:rgba(4,5,22,0.88);border:1px solid rgba(100,150,255,0.2);
+              border-bottom:none;border-radius:14px 14px 0 0;backdrop-filter:blur(10px)}
+  #entity-bar{display:flex;align-items:center;gap:10px;padding:10px 16px 6px;
+              border-bottom:1px solid rgba(100,150,255,0.1)}
+  #entity-name{font-size:13px;font-weight:700;color:#7eb8ff;letter-spacing:.05em}
+  #entity-mood{font-size:11px;color:#556;background:rgba(100,150,255,0.08);
+               border-radius:4px;padding:2px 8px}
+  #entity-llm{margin-left:auto;font-size:10px;color:#445}
+  #speak-btn{background:none;border:none;cursor:pointer;font-size:16px;padding:0 4px;
+             opacity:.6;transition:opacity .2s}
+  #speak-btn:hover{opacity:1}
+  #chat-msgs{height:220px;overflow-y:auto;padding:10px 14px;display:flex;
+             flex-direction:column;gap:8px;scroll-behavior:smooth}
+  #chat-msgs::-webkit-scrollbar{width:4px}
+  #chat-msgs::-webkit-scrollbar-thumb{background:rgba(100,150,255,0.2);border-radius:2px}
+  .msg{max-width:88%;padding:8px 12px;border-radius:10px;font-size:12px;line-height:1.55;
+       animation:fadein .3s ease}
+  .msg-user{align-self:flex-end;background:rgba(41,121,255,0.18);
+            border:1px solid rgba(41,121,255,0.3);color:#cce4ff;border-radius:10px 10px 2px 10px}
+  .msg-ai{align-self:flex-start;background:rgba(0,230,118,0.07);
+          border:1px solid rgba(0,230,118,0.2);color:#b8ffd4;border-radius:10px 10px 10px 2px}
+  .msg-ai .sender{font-size:10px;color:#00e676;font-weight:700;margin-bottom:4px}
+  .msg-thinking{align-self:flex-start;color:#556;font-size:11px;font-style:italic}
+  @keyframes fadein{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+  #chat-input-row{display:flex;gap:8px;padding:10px 14px 12px}
+  #chat-input{flex:1;background:rgba(10,12,40,0.9);border:1px solid rgba(100,150,255,0.3);
+              border-radius:8px;color:#cce4ff;padding:8px 12px;font-size:13px;outline:none;
+              resize:none;height:38px;font-family:inherit}
+  #chat-input:focus{border-color:rgba(100,150,255,0.65);box-shadow:0 0 8px rgba(41,121,255,0.25)}
+  #chat-send{background:rgba(0,230,118,0.15);border:1px solid rgba(0,230,118,0.4);
+             border-radius:8px;color:#00e676;padding:8px 18px;cursor:pointer;font-size:13px;
+             transition:background .2s;white-space:nowrap}
+  #chat-send:hover{background:rgba(0,230,118,0.3)}
+  #chat-send:disabled{opacity:.35;cursor:default}
   #legend{position:absolute;bottom:18px;right:14px;font-size:11px;min-width:120px}
   #legend h3{color:#7eb8ff;font-size:12px;font-weight:700;margin-bottom:7px}
   .leg-row{display:flex;align-items:center;gap:7px;margin-bottom:4px;color:#9aaccc}
@@ -245,12 +277,19 @@ _HTML = r"""<!DOCTYPE html>
     <h3>&#9670; Active Thoughts</h3>
     <div id="concept-list"></div>
   </div>
-  <div id="query-area" class="panel">
-    <div id="query-row">
-      <input id="qinput" type="text" placeholder="Ask the brain anything…"/>
-      <button id="qbtn">Ask</button>
+  <!-- Chat panel — talks to the electronic life form -->
+  <div id="chat-panel">
+    <div id="entity-bar">
+      <span id="entity-name">…</span>
+      <span id="entity-mood">initialising</span>
+      <button id="speak-btn" title="Toggle voice">🔊</button>
+      <span id="entity-llm">–</span>
     </div>
-    <div id="qresponse"></div>
+    <div id="chat-msgs"></div>
+    <div id="chat-input-row">
+      <input id="chat-input" type="text" placeholder="Say something to the life form…" autocomplete="off"/>
+      <button id="chat-send">Send</button>
+    </div>
   </div>
   <div id="legend" class="panel">
     <h3>&#9632; Regions</h3>
@@ -594,33 +633,129 @@ async function pollState() {
       cl.appendChild(div);
     }
 
-    // Query response
+    // Chat: incoming reply from entity
     if (data.last_response && data.last_response !== lastResponse) {
       lastResponse = data.last_response;
-      document.getElementById('qresponse').textContent = '► ' + lastResponse;
+      removeThinking();
+      waitingReply = false;
+      addMessage('ai', lastResponse);
+      if (voiceEnabled) speak(lastResponse);
+      document.getElementById('chat-send').disabled = false;
     }
   } catch(e) {}
 }
 setInterval(pollState, 180);
 
-// ── Query input ────────────────────────────────────────────────────────────
-document.getElementById('qbtn').addEventListener('click', async () => {
-  const q = document.getElementById('qinput').value.trim();
-  if (!q) return;
-  document.getElementById('qresponse').textContent = 'Thinking…';
+// ── Entity info poll ───────────────────────────────────────────────────────
+async function pollEntity() {
   try {
-    await fetch('/query', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({query: q}),
-    });
-  } catch(e) {
-    document.getElementById('qresponse').textContent = 'Error contacting brain.';
+    const r = await fetch('/entity');
+    if (!r.ok) return;
+    const info = await r.json();
+    if (info.name) {
+      document.getElementById('entity-name').textContent = info.name;
+      document.getElementById('entity-mood').textContent =
+        `${info.mood || ''}  ·  ${info.age_turns || 0} turns`;
+      document.getElementById('entity-llm').textContent = info.llm || '';
+    }
+  } catch(e) {}
+}
+pollEntity();
+setInterval(pollEntity, 5000);
+
+// ── Chat UI ───────────────────────────────────────────────────────────────
+let voiceEnabled   = false;
+let waitingReply   = false;
+
+function addMessage(role, text) {
+  const msgs = document.getElementById('chat-msgs');
+  const div  = document.createElement('div');
+  div.className = role === 'user' ? 'msg msg-user' : 'msg msg-ai';
+  if (role === 'ai') {
+    const sender = document.getElementById('entity-name').textContent || 'Entity';
+    div.innerHTML = `<div class="sender">${sender}</div>${escapeHtml(text)}`;
+  } else {
+    div.textContent = text;
   }
-  document.getElementById('qinput').value = '';
+  msgs.appendChild(div);
+  msgs.scrollTop = msgs.scrollHeight;
+}
+
+function addThinking() {
+  const msgs = document.getElementById('chat-msgs');
+  const div  = document.createElement('div');
+  div.className = 'msg msg-thinking';
+  div.id        = 'thinking-indicator';
+  const name = document.getElementById('entity-name').textContent || 'Entity';
+  div.textContent = `${name} is thinking…`;
+  msgs.appendChild(div);
+  msgs.scrollTop = msgs.scrollHeight;
+}
+
+function removeThinking() {
+  const el = document.getElementById('thinking-indicator');
+  if (el) el.remove();
+}
+
+function escapeHtml(str) {
+  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;')
+            .replace(/>/g,'&gt;').replace(/\n/g,'<br>');
+}
+
+async function sendChat() {
+  const input = document.getElementById('chat-input');
+  const btn   = document.getElementById('chat-send');
+  const text  = input.value.trim();
+  if (!text || waitingReply) return;
+
+  addMessage('user', text);
+  input.value   = '';
+  waitingReply  = true;
+  btn.disabled  = true;
+  addThinking();
+
+  try {
+    await fetch('/chat', {
+      method:  'POST',
+      headers: {'Content-Type':'application/json'},
+      body:    JSON.stringify({text}),
+    });
+    // Reply arrives via next /state poll → lastResponse handler above
+  } catch(e) {
+    removeThinking();
+    addMessage('ai', 'Connection error. Please try again.');
+    btn.disabled = false;
+    waitingReply = false;
+  }
+}
+
+document.getElementById('chat-send').addEventListener('click', sendChat);
+document.getElementById('chat-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); }
 });
-document.getElementById('qinput').addEventListener('keydown', e => {
-  if (e.key === 'Enter') document.getElementById('qbtn').click();
+
+// ── Voice output (browser Web Speech API — no install needed) ────────────
+const synth = window.speechSynthesis;
+function speak(text) {
+  if (!synth) return;
+  synth.cancel();
+  // Strip markdown-ish chars for cleaner speech
+  const clean = text.replace(/[*_`#►]/g, '').replace(/<[^>]+>/g, '').slice(0, 600);
+  const utt   = new SpeechSynthesisUtterance(clean);
+  utt.rate    = 0.92;
+  utt.pitch   = 0.95;
+  // Prefer a deeper/neutral voice if available
+  const voices = synth.getVoices();
+  const pref   = voices.find(v => v.name.includes('Google') && v.lang.startsWith('en'))
+              || voices.find(v => v.lang.startsWith('en'));
+  if (pref) utt.voice = pref;
+  synth.speak(utt);
+}
+
+document.getElementById('speak-btn').addEventListener('click', () => {
+  voiceEnabled = !voiceEnabled;
+  document.getElementById('speak-btn').textContent = voiceEnabled ? '🔊' : '🔇';
+  if (!voiceEnabled) synth && synth.cancel();
 });
 
 // ── Resize ─────────────────────────────────────────────────────────────────
@@ -794,6 +929,7 @@ class BrainHTTPHandler(BaseHTTPRequestHandler):
     brain_state: BrainState                    # set by main()
     _sim_thread: 'SimulationThread | None' = None  # set by main()
     _ollama:     'object | None'           = None  # OllamaClient, set by main()
+    _entity:     'object | None'           = None  # ElectronicLifeForm, set by main()
 
     def log_message(self, fmt, *args):  # suppress access logs
         pass
@@ -818,6 +954,18 @@ class BrainHTTPHandler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
 
+        elif self.path == '/entity':
+            # Return entity info (name, mood, traits, interests)
+            entity = BrainHTTPHandler._entity
+            info   = entity.info() if entity else {}
+            body   = json.dumps(info).encode('utf-8')
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', str(len(body)))
+            self._send_cors()
+            self.end_headers()
+            self.wfile.write(body)
+
         elif self.path == '/state':
             snap = self.brain_state.snapshot()
             # Inject LLM status (cached — don't ping Ollama on every poll)
@@ -837,6 +985,41 @@ class BrainHTTPHandler(BaseHTTPRequestHandler):
             self.end_headers()
 
     def do_POST(self):
+        if self.path == '/chat':
+            # Full entity chat — uses personality, memory, STDP learning
+            length = int(self.headers.get('Content-Length', 0))
+            raw    = self.rfile.read(length)
+            try:
+                data = json.loads(raw)
+                text = data.get('text', '').strip()
+            except Exception:
+                text = raw.decode('utf-8', errors='replace').strip()
+
+            if not text:
+                self.send_error(400, 'No text')
+                return
+
+            entity = BrainHTTPHandler._entity
+            state  = self.brain_state
+
+            def _chat():
+                if entity:
+                    reply = entity.chat(text)
+                else:
+                    reply = "(Entity not initialised — restart with NVIDIA_API_KEY set)"
+                state.set_response(text, reply)
+
+            threading.Thread(target=_chat, daemon=True).start()
+
+            body = json.dumps({"status": "thinking"}).encode()
+            self.send_response(202)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', str(len(body)))
+            self._send_cors()
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
         if self.path == '/query':
             length = int(self.headers.get('Content-Length', 0))
             raw = self.rfile.read(length)
@@ -928,8 +1111,9 @@ def main() -> None:
     parser.add_argument('--port',  type=int,   default=8000,          help='HTTP port (default 8000)')
     parser.add_argument('--scale', type=float, default=0.15,          help='Brain scale (default 0.15 = 150K neurons)')
     parser.add_argument('--demo',  action='store_true',               help='Force demo mode (no IBBrain init)')
-    parser.add_argument('--model', type=str,   default='llama3.1:8b', help='Ollama model name')
-    parser.add_argument('--no-llm', action='store_true',              help='Disable Ollama integration')
+    parser.add_argument('--model',      type=str, default='llama3.1:8b', help='Ollama model name')
+    parser.add_argument('--no-llm',    action='store_true',             help='Disable all LLM integration')
+    parser.add_argument('--nvidia-key', type=str, default='',           help='NVIDIA NIM API key (or set NVIDIA_API_KEY env var)')
     args = parser.parse_args()
 
     state = BrainState()
@@ -964,11 +1148,44 @@ def main() -> None:
         except ImportError:
             pass
 
+    # ── NVIDIA NIM setup ──────────────────────────────────────────────────────
+    nvidia_client = None
+    nvidia_key    = args.nvidia_key or os.environ.get("NVIDIA_API_KEY", "")
+    if nvidia_key and not args.no_llm:
+        try:
+            from neuromorphic.llm.nvidia_nim import NvidiaClient
+            nvidia_client = NvidiaClient(api_key=nvidia_key)
+            if nvidia_client.is_available():
+                print(f'[brain_web] NVIDIA NIM: {nvidia_client.model} ✓  (70B, GPU-hosted)')
+            else:
+                print('[brain_web] NVIDIA NIM: key set but API not reachable — check key')
+                nvidia_client = None
+        except ImportError:
+            pass
+    else:
+        print('[brain_web] NVIDIA NIM: not configured (set NVIDIA_API_KEY for 70B model)')
+
+    # ── Electronic Life Form ──────────────────────────────────────────────────
+    entity = None
+    try:
+        from neuromorphic.personality.entity import ElectronicLifeForm
+        entity = ElectronicLifeForm(
+            nvidia_client = nvidia_client,
+            ollama_client = ollama_client,
+            sim_thread    = sim,
+            brain_state   = state,
+        )
+        print(f'[brain_web] Life form: {entity.persona.name}  '
+              f'(age={entity.persona.age_turns} turns, mood={entity.persona.mood})')
+    except Exception as e:
+        print(f'[brain_web] Life form init failed: {e}')
+
     # ── Bind handler ──────────────────────────────────────────────────────────
     handler = BrainHTTPHandler
     handler.brain_state = state
     handler._sim_thread = sim
     handler._ollama     = ollama_client
+    handler._entity     = entity
 
     server = HTTPServer(('', args.port), handler)
     url    = f'http://localhost:{args.port}/'
