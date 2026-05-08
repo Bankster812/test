@@ -239,6 +239,7 @@ _HTML = r"""<!DOCTYPE html>
     <div class="row">Sim&nbsp;time: <span class="val" id="stat-time">0.000</span> s</div>
     <div class="row">Steps: <span class="val" id="stat-steps">0</span></div>
     <div class="row">Zoom&nbsp;dist: <span class="val" id="stat-dist">0.0</span></div>
+    <div class="row">LLM: <span class="val" id="stat-llm" style="color:#888">–</span></div>
   </div>
   <div id="thoughts" class="panel">
     <h3>&#9670; Active Thoughts</h3>
@@ -562,6 +563,17 @@ async function pollState() {
     // Update stats
     document.getElementById('stat-time').textContent  = (data.sim_time||0).toFixed(3);
     document.getElementById('stat-steps').textContent = (data.step||0).toLocaleString();
+    const llmEl = document.getElementById('stat-llm');
+    if (data.llm_available) {
+      llmEl.textContent = data.llm_model || 'ready';
+      llmEl.style.color = '#00e676';
+    } else if (data.llm_model) {
+      llmEl.textContent = 'loading…';
+      llmEl.style.color = '#ff8800';
+    } else {
+      llmEl.textContent = 'offline';
+      llmEl.style.color = '#555';
+    }
 
     // Update thoughts panel
     const concepts = data.concepts || [];
@@ -779,8 +791,9 @@ def _ib_keyword_response(query: str) -> str:
 class BrainHTTPHandler(BaseHTTPRequestHandler):
     """Serves the brain web UI and JSON state."""
 
-    brain_state: BrainState  # set by main()
+    brain_state: BrainState                    # set by main()
     _sim_thread: 'SimulationThread | None' = None  # set by main()
+    _ollama:     'object | None'           = None  # OllamaClient, set by main()
 
     def log_message(self, fmt, *args):  # suppress access logs
         pass
@@ -807,6 +820,10 @@ class BrainHTTPHandler(BaseHTTPRequestHandler):
 
         elif self.path == '/state':
             snap = self.brain_state.snapshot()
+            # Inject LLM status (cached — don't ping Ollama on every poll)
+            ollama = BrainHTTPHandler._ollama
+            snap['llm_model']     = getattr(ollama, 'model', None)
+            snap['llm_available'] = getattr(ollama, '_last_available', False)
             body = json.dumps(snap).encode('utf-8')
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
@@ -830,41 +847,63 @@ class BrainHTTPHandler(BaseHTTPRequestHandler):
                 query = raw.decode('utf-8', errors='replace')
 
             # Dispatch to brain in background thread
-            state = self.brain_state
-            sim   = BrainHTTPHandler._sim_thread  # set by main()
+            state  = self.brain_state
+            sim    = BrainHTTPHandler._sim_thread
+            ollama = BrainHTTPHandler._ollama      # set by main()
 
             def _handle(q):
-                # 1. Real IBBrain if simulation thread has one loaded
+                # ── 1. Ollama local LLM (all topics, no API key) ──────────────
+                if ollama is not None and ollama.is_available():
+                    # Build system prompt enriched with brain's active thoughts
+                    snap     = state.snapshot()
+                    concepts = [c.get('label', c.get('name','')) for c in snap.get('concepts', [])]
+                    top_regions = sorted(
+                        snap.get('rates', {}).items(), key=lambda x: -x[1]
+                    )[:3]
+                    brain_ctx = ""
+                    if concepts:
+                        brain_ctx += f"Currently active in the neural network: {', '.join(concepts[:5])}. "
+                    if top_regions:
+                        brain_ctx += f"Most active brain regions: {', '.join(r for r,_ in top_regions)}."
+
+                    system = (
+                        "You are a neuromorphic AI assistant powered by a spiking neural network "
+                        "with 150,000 neurons and 27 million synapses. You have deep expertise in "
+                        "finance, investment banking, science, engineering, medicine, law, and any "
+                        "other topic the user asks about. Be concise, accurate, and helpful. "
+                        "For financial questions, give specific numbers and formulas where relevant.\n"
+                        + (f"Brain context: {brain_ctx}" if brain_ctx else "")
+                    )
+                    response = ollama.generate(q, system=system, max_tokens=600)
+                    if response:
+                        state.set_response(q, response)
+                        return
+
+                # ── 2. IBBrain neural query (if loaded) ──────────────────────
                 if sim is not None and getattr(sim, '_brain', None) is not None:
                     try:
                         result = sim._brain.query(q)
                         state.set_response(q, result.answer_text)
                         return
-                    except Exception as e:
+                    except Exception:
                         pass
 
-                # 2. Lightweight: QueryEngine + KnowledgeBase (pure Python, no neural sim)
+                # ── 3. Lightweight KB lookup (IB topics, pure Python) ────────
                 try:
                     from neuromorphic.domains.investment_banking.query.query_engine import QueryEngine
                     from neuromorphic.domains.investment_banking.knowledge.knowledge_base import KnowledgeBase
-                    qe = QueryEngine()
+                    qv = QueryEngine().parse(q)
                     kb = KnowledgeBase()
-                    qv = qe.parse(q)
-                    texts = []
-                    for entity in qv.entities:
-                        entry = kb.lookup(entity)
-                        if entry:
-                            texts.append(str(entry))
+                    texts = [str(kb.lookup(e)) for e in qv.entities if kb.lookup(e)]
                     if not texts:
-                        results = kb.search(q, top_k=2)
-                        texts = [str(r) for r in results]
+                        texts = [str(r) for r in kb.search(q, top_k=2)]
                     if texts:
                         state.set_response(q, '\n\n'.join(texts))
                         return
                 except Exception:
                     pass
 
-                # 3. Smart keyword fallback — real IB content without any imports
+                # ── 4. Keyword fallback ───────────────────────────────────────
                 state.set_response(q, _ib_keyword_response(q))
 
             threading.Thread(target=_handle, args=(query,), daemon=True).start()
@@ -886,9 +925,11 @@ class BrainHTTPHandler(BaseHTTPRequestHandler):
 
 def main() -> None:
     parser = argparse.ArgumentParser(description='Neuromorphic brain web server')
-    parser.add_argument('--port',  type=int,   default=8000, help='HTTP port (default 8000)')
-    parser.add_argument('--scale', type=float, default=1.0,  help='Brain scale factor')
-    parser.add_argument('--demo',  action='store_true',      help='Force demo mode')
+    parser.add_argument('--port',  type=int,   default=8000,          help='HTTP port (default 8000)')
+    parser.add_argument('--scale', type=float, default=0.15,          help='Brain scale (default 0.15 = 150K neurons)')
+    parser.add_argument('--demo',  action='store_true',               help='Force demo mode (no IBBrain init)')
+    parser.add_argument('--model', type=str,   default='llama3.2:3b', help='Ollama model name')
+    parser.add_argument('--no-llm', action='store_true',              help='Disable Ollama integration')
     args = parser.parse_args()
 
     state = BrainState()
@@ -896,21 +937,49 @@ def main() -> None:
     sim = SimulationThread(state, demo=args.demo, scale=args.scale)
     sim.start()
 
-    # Bind handler to state and sim thread via class attributes
+    # ── Ollama LLM setup ──────────────────────────────────────────────────────
+    ollama_client = None
+    if not args.no_llm:
+        try:
+            from neuromorphic.llm.ollama_client import OllamaClient
+            ollama_client = OllamaClient(model=args.model)
+            ollama_client._last_available = False
+
+            def _ollama_monitor():
+                """Background thread: ping Ollama every 10s, cache availability."""
+                while True:
+                    available = ollama_client.is_available()
+                    ollama_client._last_available = available
+                    if available:
+                        pass  # silent once available
+                    time.sleep(10)
+
+            threading.Thread(target=_ollama_monitor, daemon=True).start()
+            # Initial check
+            if ollama_client.is_available():
+                ollama_client._last_available = True
+                print(f'[brain_web] LLM: {args.model} ready via Ollama ✓')
+            else:
+                print(f'[brain_web] LLM: Ollama not available yet — will retry (run: ollama serve)')
+        except ImportError:
+            pass
+
+    # ── Bind handler ──────────────────────────────────────────────────────────
     handler = BrainHTTPHandler
     handler.brain_state = state
     handler._sim_thread = sim
+    handler._ollama     = ollama_client
 
     server = HTTPServer(('', args.port), handler)
-    url = f'http://localhost:{args.port}/'
+    url    = f'http://localhost:{args.port}/'
 
+    neurons = int(sum(v['neurons'] for v in REGIONS.values()) * args.scale)
+    print(f'[brain_web] Neurons: {neurons:,} (scale={args.scale})')
     print(f'[brain_web] Serving at {url}')
-    print(f'[brain_web] Demo mode: {args.demo or True}')
-    print('[brain_web] Press Ctrl+C to stop.')
+    print('[brain_web] Press Ctrl+C to stop.\n')
 
-    # Open browser after 1 second
     def _open():
-        time.sleep(1)
+        time.sleep(1.2)
         webbrowser.open(url)
     threading.Thread(target=_open, daemon=True).start()
 

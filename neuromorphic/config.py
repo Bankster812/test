@@ -3,9 +3,10 @@ Neuromorphic AI Platform — Configuration
 =========================================
 All constants live here. Set SCALE before importing anything else.
 
-  SCALE = 0.01  → 10K neurons,  ~120K synapses  (laptop demo)
-  SCALE = 0.1   → 100K neurons, ~12M synapses   (workstation)
-  SCALE = 1.0   → 1M neurons,   ~1.2B synapses  (full target)
+  SCALE = 0.01  → 10K neurons,   ~120K synapses  (laptop demo)
+  SCALE = 0.1   → 100K neurons,  ~12M synapses   (workstation)
+  SCALE = 0.15  → 150K neurons,  ~27M synapses   (server default — fits in 15GB with LLM)
+  SCALE = 1.0   → 1M neurons,    ~1.2B synapses  (full target)
 
 Synapse count scales as SCALE² because both pre and post populations shrink,
 preserving biological density ratios.
@@ -16,7 +17,8 @@ import numpy as np
 # ---------------------------------------------------------------------------
 # Scale factor — override this before constructing Brain
 # ---------------------------------------------------------------------------
-SCALE: float = 0.01
+# Server: 15GB RAM — SCALE=0.15 uses ~3GB leaving room for Ollama LLM (~5GB)
+SCALE: float = 0.15
 
 # ---------------------------------------------------------------------------
 # Timestep
