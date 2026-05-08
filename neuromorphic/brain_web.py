@@ -194,8 +194,8 @@ _HTML = r"""<!DOCTYPE html>
 <style>
   *{margin:0;padding:0;box-sizing:border-box}
   body{background:#050510;overflow:hidden;font-family:'Segoe UI',monospace;color:#e0e8ff}
-  #c{display:block;width:100vw;height:100vh}
-  #ui{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none}
+  #c{display:block;width:100vw;height:100vh;position:relative;z-index:1}
+  #ui{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:10}
   .panel{pointer-events:auto;background:rgba(5,5,25,0.75);border:1px solid rgba(100,150,255,0.2);
          border-radius:8px;padding:10px 14px;backdrop-filter:blur(6px)}
   #info{position:absolute;top:14px;left:14px;min-width:180px;font-size:12px;line-height:1.8}
@@ -211,7 +211,7 @@ _HTML = r"""<!DOCTYPE html>
   .concept-bar-bg{background:rgba(100,150,255,0.15);border-radius:3px;height:5px;overflow:hidden}
   .concept-bar{background:linear-gradient(90deg,#2979ff,#7eb8ff);height:5px;transition:width .4s}
   #query-area{position:absolute;bottom:18px;left:50%;transform:translateX(-50%);
-              text-align:center;min-width:340px;max-width:480px}
+              text-align:center;min-width:340px;max-width:480px;z-index:20}
   #query-row{display:flex;gap:8px;margin-bottom:8px}
   #qinput{flex:1;background:rgba(10,12,40,0.9);border:1px solid rgba(100,150,255,0.35);
           border-radius:6px;color:#cce4ff;padding:7px 12px;font-size:13px;outline:none}
