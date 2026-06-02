@@ -82,7 +82,17 @@ class ExcelWriter:
         ws.cell(r, 1, "Enterprise Value")
         ws.cell(r, 2, result.enterprise_value).number_format = '#,##0'
         self._bold(ws.cell(r, 2))
-        r += 2
+        r += 1
+        # Equity value and terminal-value cross-check (added with model hardening)
+        if getattr(result, "equity_value", None) is not None:
+            ws.cell(r, 1, "Equity Value")
+            ws.cell(r, 2, result.equity_value).number_format = '#,##0'
+            r += 1
+        if getattr(result, "implied_exit_multiple", None) is not None:
+            ws.cell(r, 1, "Implied Exit EV/EBITDA (perpetuity)")
+            ws.cell(r, 2, f"{result.implied_exit_multiple:.1f}x")
+            r += 1
+        r += 1
 
         # --- Sensitivity table ---
         ws.cell(r, 1, "Sensitivity: EV by WACC × Terminal Growth")

@@ -48,6 +48,8 @@ class CompsModel:
     _METRICS = ["ev_ebitda", "ev_revenue", "pe_ratio"]
 
     def compute(self, inp: CompsInputs) -> CompsResult:
+        if not inp.comparables:
+            raise ValueError("comps requires at least one comparable company")
         rows: dict[str, dict[str, float]] = {}
         for c in inp.comparables:
             rows[c.name] = {
@@ -74,7 +76,7 @@ class CompsModel:
         ev_low = ev_high = 0.0
         if "ev_ebitda" in stats and tgt.ebitda > 0:
             s    = stats["ev_ebitda"]
-            ev_low  = (s["median"] - s["std"]) * tgt.ebitda
+            ev_low  = max((s["median"] - s["std"]) * tgt.ebitda, 0.0)
             ev_high = (s["median"] + s["std"]) * tgt.ebitda
         eq_low  = max(ev_low  - tgt.net_debt, 0)
         eq_high = max(ev_high - tgt.net_debt, 0)

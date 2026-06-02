@@ -60,6 +60,10 @@ class CreditResult:
 
 class CreditModel:
     def compute(self, inp: CreditInputs) -> CreditResult:
+        if inp.ebitda <= 0:
+            raise ValueError("credit analysis requires positive EBITDA")
+        if inp.total_debt < 0:
+            raise ValueError("total_debt must be >= 0")
         net_debt = inp.total_debt - inp.cash
         lev_tot  = inp.total_debt / max(inp.ebitda, 1)
         lev_net  = net_debt        / max(inp.ebitda, 1)
@@ -75,7 +79,14 @@ class CreditModel:
         ebt         = inp.ebitda - inp.interest_expense
         taxes       = max(ebt, 0) * inp.tax_rate
         post_tax_cf = inp.ebitda - inp.capex - taxes
-        debt_service = inp.interest_expense + (inp.total_debt * 0.05)  # assume 5% amortization
+        # Mandatory amortisation: use the maturity schedule's near-term repayment
+        # if supplied, otherwise assume 5% of total debt amortises annually.
+        if inp.debt_maturity_schedule:
+            next_year = min(inp.debt_maturity_schedule)
+            amort = inp.debt_maturity_schedule[next_year]
+        else:
+            amort = inp.total_debt * 0.05
+        debt_service = inp.interest_expense + amort
         dscr        = post_tax_cf / max(debt_service, 1)
 
         # Implied rating
