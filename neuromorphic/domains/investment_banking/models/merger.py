@@ -27,12 +27,15 @@ class MergerInputs:
     # Financing
     new_debt:            float = 0.0     # New debt raised to fund cash consideration
     debt_rate:           float = 0.06
+    # Optional
+    tgt_book_value:      float = 0.0     # if >0, used for goodwill instead of estimate
 
 
 @dataclass
 class MergerResult:
     offer_price:         float
-    offer_value:         float           # total deal value
+    premium_pct:         float
+    offer_value:         float           # total deal value (equity purchase price)
     cash_consideration:  float
     stock_consideration: float
     shares_issued:       float
@@ -40,29 +43,35 @@ class MergerResult:
     acq_standalone_eps:  float
     pro_forma_eps_yr1:   float
     pro_forma_eps_with_synergies: float
-    accretion_dilution_pct: float        # vs standalone EPS
-    breakeven_synergies: float           # synergies needed for zero accretion/dilution
+    accretion_dilution_pct: float        # vs standalone EPS, no synergies
+    accretion_dilution_with_synergies_pct: float
+    breakeven_synergies: float           # pre-tax synergies for zero accretion/dilution
     goodwill:            float
     exchange_ratio:      float | None
 
     def __str__(self) -> str:
         ad = self.accretion_dilution_pct
-        return (
+        lines = [
             f"  Offer price:          ${self.offer_price:.2f}  "
-            f"({self.offer_price/max(self.offer_price/(1+0.001),1e-6)*100:.0f}% premium)\n"
-            f"  Total deal value:     ${self.offer_value/1e6:.1f}M\n"
-            f"  Acquirer EPS (base):  ${self.acq_standalone_eps:.3f}\n"
-            f"  Pro-forma EPS (Yr1):  ${self.pro_forma_eps_yr1:.3f}\n"
-            f"  With full synergies:  ${self.pro_forma_eps_with_synergies:.3f}\n"
+            f"({self.premium_pct*100:.0f}% premium)",
+            f"  Total deal value:     ${self.offer_value/1e6:.1f}M",
+            f"  Acquirer EPS (base):  ${self.acq_standalone_eps:.3f}",
+            f"  Pro-forma EPS (Yr1):  ${self.pro_forma_eps_yr1:.3f}",
+            f"  With full synergies:  ${self.pro_forma_eps_with_synergies:.3f}",
             f"  Accretion/(Dilution): {ad*100:+.2f}% "
-            f"({'ACCRETIVE' if ad > 0 else 'DILUTIVE'})\n"
-            f"  Breakeven synergies:  ${self.breakeven_synergies/1e6:.1f}M/yr\n"
-            f"  Exchange ratio:       {self.exchange_ratio:.4f}x" if self.exchange_ratio else ""
-        )
+            f"({'ACCRETIVE' if ad >= 0 else 'DILUTIVE'})",
+            f"  ... with synergies:   {self.accretion_dilution_with_synergies_pct*100:+.2f}%",
+            f"  Breakeven synergies:  ${self.breakeven_synergies/1e6:.1f}M/yr",
+        ]
+        if self.exchange_ratio is not None:
+            lines.append(f"  Exchange ratio:       {self.exchange_ratio:.4f}x")
+        return "\n".join(lines)
 
 
 class MergerModel:
     def compute(self, inp: MergerInputs) -> MergerResult:
+        self._validate(inp)
+
         # Offer mechanics
         offer_price       = inp.tgt_share_price * (1.0 + inp.premium_pct)
         offer_value       = offer_price * inp.tgt_shares
@@ -72,33 +81,40 @@ class MergerModel:
         # Shares issued to target shareholders
         shares_issued     = stock_consid / max(inp.acq_share_price, 0.01)
         combined_shares   = inp.acq_shares + shares_issued
-        exchange_ratio    = shares_issued / max(inp.tgt_shares, 1) if inp.stock_pct > 0 else None
+        exchange_ratio    = (shares_issued / max(inp.tgt_shares, 1)
+                             if inp.stock_pct > 0 else None)
 
-        # Goodwill = offer value - book value of target (approximated as target NI * acq P/E * 0.5)
-        tgt_book_approx = inp.tgt_net_income * inp.acq_pe * 0.3
-        goodwill          = max(offer_value - tgt_book_approx, 0)
+        # Goodwill = purchase price - book value of target
+        tgt_book = inp.tgt_book_value if inp.tgt_book_value > 0 \
+            else inp.tgt_net_income * inp.acq_pe * 0.3   # rough fallback estimate
+        goodwill          = max(offer_value - tgt_book, 0)
 
         # Acquirer standalone EPS
         acq_eps           = inp.acq_net_income / max(inp.acq_shares, 1)
 
-        # Combined net income (no synergies, year 1)
-        interest_on_debt  = inp.new_debt * inp.debt_rate * (1.0 - inp.tax_rate)
-        combined_ni_yr1   = inp.acq_net_income + inp.tgt_net_income - interest_on_debt
+        # New debt raised for the cash portion creates after-tax interest cost.
+        new_debt          = inp.new_debt if inp.new_debt > 0 else cash_consid
+        interest_at       = new_debt * inp.debt_rate * (1.0 - inp.tax_rate)
+
+        # Combined net income (year 1, no synergies)
+        combined_ni_yr1   = inp.acq_net_income + inp.tgt_net_income - interest_at
         pf_eps_yr1        = combined_ni_yr1 / max(combined_shares, 1)
 
-        # With full synergies
+        # With full run-rate synergies (after tax)
         net_synergies     = inp.annual_synergies * (1.0 - inp.tax_rate)
         combined_ni_syn   = combined_ni_yr1 + net_synergies
         pf_eps_syn        = combined_ni_syn / max(combined_shares, 1)
 
         ad_pct            = (pf_eps_yr1 - acq_eps) / max(abs(acq_eps), 1e-9)
+        ad_syn_pct        = (pf_eps_syn - acq_eps) / max(abs(acq_eps), 1e-9)
 
-        # Breakeven synergies: how much pre-tax synergies needed to break even
-        eps_gap           = (acq_eps - pf_eps_yr1) * combined_shares
+        # Breakeven synergies: pre-tax synergies that make pro-forma EPS == standalone
+        eps_gap           = (acq_eps - pf_eps_yr1) * combined_shares  # NI shortfall
         breakeven_syn     = eps_gap / max(1.0 - inp.tax_rate, 0.01)
 
         return MergerResult(
             offer_price                   = offer_price,
+            premium_pct                   = inp.premium_pct,
             offer_value                   = offer_value,
             cash_consideration            = cash_consid,
             stock_consideration           = stock_consid,
@@ -108,10 +124,23 @@ class MergerModel:
             pro_forma_eps_yr1             = pf_eps_yr1,
             pro_forma_eps_with_synergies  = pf_eps_syn,
             accretion_dilution_pct        = ad_pct,
+            accretion_dilution_with_synergies_pct = ad_syn_pct,
             breakeven_synergies           = max(breakeven_syn, 0),
             goodwill                      = goodwill,
             exchange_ratio                = exchange_ratio,
         )
+
+    @staticmethod
+    def _validate(inp: MergerInputs) -> None:
+        if inp.acq_shares <= 0 or inp.tgt_shares <= 0:
+            raise ValueError("share counts must be positive")
+        if not (0.0 <= inp.tax_rate < 1.0):
+            raise ValueError("tax_rate must be in [0, 1)")
+        if abs((inp.cash_pct + inp.stock_pct) - 1.0) > 1e-6:
+            raise ValueError(
+                f"cash_pct + stock_pct must equal 1.0, got "
+                f"{inp.cash_pct + inp.stock_pct:.3f}"
+            )
 
     @staticmethod
     def from_brain_params(params, user_inputs: dict) -> MergerInputs:
@@ -132,4 +161,5 @@ class MergerModel:
             tax_rate         = pick("tax_rate",    "tax_rate",    0.25),
             new_debt         = user_inputs.get("new_debt",        0.0),
             debt_rate        = pick("debt_rate",   "interest_rate",0.06),
+            tgt_book_value   = user_inputs.get("tgt_book_value",  0.0),
         )

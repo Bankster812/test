@@ -49,6 +49,8 @@ class PrecedentsResult:
 
 class PrecedentsModel:
     def compute(self, inp: PrecedentsInputs) -> PrecedentsResult:
+        if not inp.transactions:
+            raise ValueError("precedent analysis requires at least one transaction")
         # Filter
         txns = [
             t for t in inp.transactions
