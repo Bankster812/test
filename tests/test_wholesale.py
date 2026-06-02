@@ -16,6 +16,8 @@ from wholesale.core.models import (
     Deal, Property, Seller, Stage, PIPELINE_ORDER,
 )
 from wholesale.integrations import IntegrationHub
+from wholesale.contracts import ContractGenerator
+from wholesale.compliance import ComplianceGate, gate as gate_mod
 
 
 def _make_deal(state="TX", price=300_000, market=400_000) -> Deal:
@@ -122,6 +124,47 @@ def test_integrations_are_dry_run_by_default():
     hub.slack_alert(channel="deals", text="hi")
     assert len(hub.outbox) == 3
     assert all(r.armed is False for r in hub.outbox)
+
+
+def test_contract_generator_marks_drafts_and_fills_fields():
+    deal = _make_deal()
+    deal.contract_price = 120_000
+    deal.assignment_fee = 30_000
+    gen = ContractGenerator(buyer_entity="Keystone Property Partners LLC")
+    psa = gen.purchase_agreement(deal)
+    asg = gen.assignment_agreement(deal)
+    # Every generated doc must carry the attorney-review banner.
+    assert "ATTORNEY REVIEW REQUIRED" in psa
+    assert "ATTORNEY REVIEW REQUIRED" in asg
+    # Key economics are filled, not left as placeholders.
+    assert "120,000" in psa
+    assert "30,000" in asg
+    assert "Keystone Property Partners LLC" in psa
+    # Assignability + equitable-interest disclosure are present.
+    assert "ASSIGNABLE" in psa and "equitable interest" in psa
+
+
+def test_compliance_gate_blocks_until_fully_attested():
+    g = ComplianceGate()
+    # Default posture is BLOCKED.
+    assert g.can_contact_real_owners("TX") is False
+    assert set(g.missing("TX")) == set(gate_mod.REQUIRED_ATTESTATIONS)
+    # Partial attestation still blocks.
+    g.attest("TX", entity_formed=True, attorney_engaged=True)
+    assert g.can_contact_real_owners("TX") is False
+    # Full attestation clears that state only.
+    g.attest("TX", **{a: True for a in gate_mod.REQUIRED_ATTESTATIONS})
+    assert g.can_contact_real_owners("TX") is True
+    assert g.can_contact_real_owners("FL") is False  # per-state isolation
+
+
+def test_compliance_gate_rejects_unknown_attestation():
+    g = ComplianceGate()
+    try:
+        g.attest("TX", not_a_real_flag=True)
+        assert False, "expected ValueError"
+    except ValueError:
+        pass
 
 
 def test_decide_rejects_unknown_deal_and_bad_decision():
