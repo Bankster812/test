@@ -18,6 +18,7 @@ from wholesale.core.models import (
 from wholesale.integrations import IntegrationHub
 from wholesale.contracts import ContractGenerator
 from wholesale.compliance import ComplianceGate, gate as gate_mod
+from wholesale.sourcing import build_rows, KEYWORDS
 
 
 def _make_deal(state="TX", price=300_000, market=400_000) -> Deal:
@@ -165,6 +166,19 @@ def test_compliance_gate_rejects_unknown_attestation():
         assert False, "expected ValueError"
     except ValueError:
         pass
+
+
+def test_search_link_generator_builds_valid_google_urls():
+    rows = build_rows("75215", site="zillow.com")
+    assert len(rows) == len(KEYWORDS)
+    for r in rows:
+        # Properly URL-encoded Google search against the target site.
+        assert r["google_url"].startswith("https://www.google.com/search?q=")
+        assert "site%3Azillow.com" in r["google_url"]
+        assert "75215" in r["google_url"]
+    # Custom site + keyword list are honoured.
+    rows2 = build_rows("Tampa, FL", site="realtor.com", keywords=["probate"])
+    assert len(rows2) == 1 and rows2[0]["site"] == "realtor.com"
 
 
 def test_decide_rejects_unknown_deal_and_bad_decision():
