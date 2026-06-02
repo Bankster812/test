@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository overview
 
-A biologically-inspired spiking neural network platform with a specialised Investment Banking domain. There is no build system, no test suite, and no formal package config — it is run directly with `python -m`. Dependencies are listed in `requirements.txt`.
+A biologically-inspired spiking neural network platform with a specialised Investment Banking domain. There is no build system and no formal package config — it is run directly with `python -m`. Dependencies are listed in `requirements.txt`. A `pytest` suite under `tests/` covers the deterministic IB financial models (the neural platform itself is still validated by running the demos).
 
 ## Common commands
 
@@ -27,9 +27,16 @@ python neuromorphic/visualise.py
 python -m neuromorphic.brain_web --port 8000 --demo
 python -m neuromorphic.brain_web --scale 0.15 --no-llm          # skip LLM clients
 python -m neuromorphic.brain_web --model llama3.1:8b --groq-key KEY   # other flags: --nvidia-key
+
+# Run the IB financial-model test suite (deterministic, fast, no network)
+pytest tests/ -q
+
+# Worked end-to-end walkthrough of all six IB models (no network, no Brain)
+python -m neuromorphic.domains.investment_banking.examples.worked_models
+python -m neuromorphic.domains.investment_banking.examples.worked_models --excel out/
 ```
 
-There are no tests. Validate changes by running the relevant demo and checking the diagnostics output (per-region firing rates, neuromodulator levels, safety violation counts).
+The neural platform has no automated tests — validate changes by running the relevant demo and checking the diagnostics output (per-region firing rates, neuromodulator levels, safety violation counts). The IB financial models *are* covered by `pytest tests/`; run it after touching anything under `domains/investment_banking/models/`. CI (`.github/workflows`) runs flake8 (non-blocking style + blocking syntax/undefined-name checks) and `pytest`.
 
 ## High-level architecture
 
@@ -98,7 +105,8 @@ The IB layer mirrors this with `FinancialSafetyKernel` (`domains/investment_bank
 
 ### IB domain component map (`domains/investment_banking/`)
 - **Query path** — `query/query_engine.py` (`QueryEngine` → `QueryVector`), `encoders/financial_encoder.py` (`FinancialEncoder`, `FinancialTokenizer`, and a *second* `QueryVector`), `decoders/financial_decoder.py` (`FinancialDecoder` → `FinancialParams`), `decoders/response_synthesizer.py` (`ResponseSynthesizer` → `IBResponse`), `query/response_formatter.py`. Note the two `QueryVector` classes: `ib_brain.py` imports the encoder one as `EncoderQueryVector` and the parser one as `QueryVector`.
-- **Models** (`models/`, deterministic numerical code, no neural settling) — `dcf.py`, `lbo.py`, `merger.py`, `comps.py`, `precedents.py`, `credit.py`, each exposing `<Name>Model` / `<Name>Inputs` / `<Name>Result`. Dispatched by `IBBrain._run_model`.
+- **Models** (`models/`, deterministic numerical code, no neural settling) — `dcf.py`, `lbo.py`, `merger.py`, `comps.py`, `precedents.py`, `credit.py`, each exposing `<Name>Model` / `<Name>Inputs` / `<Name>Result`. Dispatched by `IBBrain._run_model`. `compute()` validates inputs and raises `ValueError` on nonsense (e.g. DCF `terminal_growth >= wacc`); DCF supports mid-year convention and perpetuity-vs-exit-multiple terminal value with a cross-check; LBO uses one consistent levered-FCF/cash-sweep loop with a bisection IRR. Adding result fields is safe; `_run_model` only reads a fixed subset. Covered by `tests/`.
+- **Worked examples** (`examples/worked_models.py`) — runnable, network-free walkthrough of all six models on one mid-market target (`python -m ...examples.worked_models [--excel DIR]`); see `examples/README.md`.
 - **Knowledge & memory** (`knowledge/`) — `knowledge_base.py` (`KnowledgeBase`/`KBEntry`, backs the KB shortcut), `deal_memory.py` (`DealMemory`, 128-d precedent embeddings with cosine retrieval), `risk_engine.py` (`RiskEngine` → `RiskReport`/`RiskLevel`/`RiskFlag`).
 - **Ingestion & learning** — `encoders/document_ingestion.py` (`DocumentIngestion` for PDF/Excel/text → `FinancialChunk`), plus the learning daemon above.
 - **Safety & Excel** — `safety/financial_constraints.py` (`FinancialSafetyKernel`) and `excel/` (`auditor.py` `ExcelAuditor`, `reader.py`, `writer.py`), which back `IBBrain.correct_excel()`.
