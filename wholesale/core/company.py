@@ -103,19 +103,14 @@ class Company:
                     agent.idle()
 
     def _seed_contacts(self) -> None:
-        """Seed a few illustrative B2B contacts so BizDev has a queue.
+        """Seed the BizDev queue with REAL public DFW B2B targets.
 
-        Replace with your real list of agents/wholesalers/buyers (public
-        business contacts). These are placeholders, not real people.
+        These are publicly-advertised investor groups and cash-buyer
+        companies (business contacts, not consumer PII). Riley drafts
+        outreach; you submit via each org's public contact form.
         """
-        from ..agents.bizdev import Contact
-        market = "Dallas, TX"
-        self.contacts = [
-            Contact("DFW Realty Partner", "realtor", market, "75215"),
-            Contact("South Dallas Wholesaler", "cowholesale", market, "75215"),
-            Contact("Lone Star Cash Buyer", "cashbuyer", market, "75215"),
-            Contact("Metroplex Flip Fund", "cashbuyer", market, "Dallas County"),
-        ]
+        from ..outreach.dfw_targets import load_contacts
+        self.contacts = load_contacts()
 
     def add_contact(self, name: str, kind: str, market: str = "Dallas, TX",
                     area: str = "75215", email: str = "") -> None:

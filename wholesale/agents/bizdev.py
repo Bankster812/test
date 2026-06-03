@@ -29,6 +29,7 @@ class Contact:
     market: str = "Dallas, TX"
     area: str = "75215"
     email: str = ""
+    url: str = ""             # public website / contact-form (preferred channel)
     status: str = "queued"    # "queued" | "drafted" | "sent"
     drafted: str = ""
     ts: float = field(default_factory=time.time)

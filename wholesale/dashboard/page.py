@@ -217,7 +217,8 @@ function render(s){
 
   $('#bizdev').innerHTML = (s.contacts||[]).length ? s.contacts.slice().reverse().map(c =>
     `<div class="o"><span class="tag">${c.kind}</span><b>${c.name}</b>
-      <span class="muted">[${c.status}]</span> — ${c.drafted||'queued'}</div>`).join('')
+      <span class="muted">[${c.status}]</span>
+      ${c.url? '<span class="muted">'+c.url+'</span>':''}<br>${c.drafted||'queued'}</div>`).join('')
     : '<div class="empty">No contacts queued.</div>';
 
   $('#dispo').innerHTML = (s.dispo_platforms||[]).map(p =>

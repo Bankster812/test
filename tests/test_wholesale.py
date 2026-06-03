@@ -223,6 +223,15 @@ def test_bizdev_drafts_contacts_into_outbox():
     assert any(r.channel == "email" for r in co.integrations.outbox)
 
 
+def test_company_seeds_real_dfw_targets():
+    co = Company(cfg=config, seed=9)
+    assert len(co.contacts) >= 10  # real public DFW businesses
+    urls = [c.url for c in co.contacts]
+    assert all(u.startswith("http") for u in urls)
+    kinds = {c.kind for c in co.contacts}
+    assert "cashbuyer" in kinds and "cowholesale" in kinds
+
+
 def test_legal_analyst_returns_memo_with_disclaimer():
     co = Company(cfg=config, seed=1)
     memo = co.legal_review("TX", pre_foreclosure=True)
