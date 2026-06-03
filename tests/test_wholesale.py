@@ -19,6 +19,8 @@ from wholesale.integrations import IntegrationHub
 from wholesale.contracts import ContractGenerator
 from wholesale.compliance import ComplianceGate, gate as gate_mod
 from wholesale.sourcing import build_rows, KEYWORDS
+from wholesale.sourcing.county_records import dallas_notice_urls, public_search_url
+from wholesale.outreach import draft, TEMPLATES
 
 
 def _make_deal(state="TX", price=300_000, market=400_000) -> Deal:
@@ -179,6 +181,29 @@ def test_search_link_generator_builds_valid_google_urls():
     # Custom site + keyword list are honoured.
     rows2 = build_rows("Tampa, FL", site="realtor.com", keywords=["probate"])
     assert len(rows2) == 1 and rows2[0]["site"] == "realtor.com"
+
+
+def test_county_records_builds_public_pdf_urls():
+    docs = dallas_notice_urls("June", ["Dallas", "DeSoto"], max_per_city=3)
+    assert len(docs) == 6
+    for d in docs:
+        assert d.url.startswith("https://www.dallascounty.org/")
+        assert d.url.endswith(".pdf") and "June" in d.url
+    assert public_search_url("TX-Dallas").startswith("https://")
+
+
+def test_outreach_drafts_are_b2b_and_personalized():
+    msg = draft("cowholesale", name="Jordan", market="Dallas, TX", area="75215")
+    assert "Jordan" in msg and "75215" in msg
+    assert "JV" in msg or "split" in msg
+    # All three audiences are available and fill cleanly.
+    for kind in TEMPLATES:
+        assert "{" not in draft(kind, name="X", market="Dallas, TX")
+    try:
+        draft("homeowner_coldcall")  # not a supported (regulated) audience
+        assert False, "expected ValueError"
+    except ValueError:
+        pass
 
 
 def test_decide_rejects_unknown_deal_and_bad_decision():
