@@ -17,10 +17,13 @@ from .negotiation import CloserAgent
 from .disposition import DispoAgent
 from .transaction import CoordinatorAgent
 from .compliance import ComplianceAgent
+from .legal import LegalAnalyst
+from .bizdev import BizDevAgent
 
 __all__ = [
     "BaseAgent", "ScoutAgent", "AnalystAgent", "CloserAgent",
-    "DispoAgent", "CoordinatorAgent", "ComplianceAgent", "build_roster",
+    "DispoAgent", "CoordinatorAgent", "ComplianceAgent", "LegalAnalyst",
+    "BizDevAgent", "build_roster",
 ]
 
 
@@ -33,5 +36,7 @@ def build_roster(company) -> dict[str, BaseAgent]:
         DispoAgent(company),
         CoordinatorAgent(company),
         ComplianceAgent(company),
+        LegalAnalyst(company),
+        BizDevAgent(company),
     ]
     return {a.code: a for a in roster}

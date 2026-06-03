@@ -118,6 +118,22 @@ PAGE = r"""<!doctype html>
       <div class="panel"><div class="outbox" id="outbox"></div></div>
     </section>
   </div>
+
+  <div class="cols">
+    <section>
+      <h2>BizDev outreach — Riley (B2B, dry-run)</h2>
+      <div class="panel"><div class="outbox" id="bizdev"></div></div>
+    </section>
+    <section>
+      <h2>Sell the contract — disposition channels</h2>
+      <div class="panel"><div class="outbox" id="dispo"></div></div>
+    </section>
+  </div>
+
+  <section>
+    <h2>Legal triage — Counsel-AI (informational, not legal advice)</h2>
+    <div class="panel"><div class="feed" id="legal"></div></div>
+  </section>
 </main>
 
 <script>
@@ -198,6 +214,25 @@ function render(s){
   $('#outbox').innerHTML = s.outbox.length ? s.outbox.slice().reverse().map(o =>
     `<div class="o"><span class="tag">${o.channel}</span>${o.summary}</div>`).join('')
     : '<div class="empty">Nothing queued.</div>';
+
+  $('#bizdev').innerHTML = (s.contacts||[]).length ? s.contacts.slice().reverse().map(c =>
+    `<div class="o"><span class="tag">${c.kind}</span><b>${c.name}</b>
+      <span class="muted">[${c.status}]</span> — ${c.drafted||'queued'}</div>`).join('')
+    : '<div class="empty">No contacts queued.</div>';
+
+  $('#dispo').innerHTML = (s.dispo_platforms||[]).map(p =>
+    `<div class="o"><span class="tag">${p.payout}</span>
+      <b>${p.name}</b> <span class="muted">${p.cost}</span><br>
+      <span class="muted">${p.best_for} — ${p.url}</span></div>`).join('');
+
+  const memoDeals = (s.deals||[]).filter(d => d.legal_memo && d.legal_memo.analysis);
+  $('#legal').innerHTML = memoDeals.length ? memoDeals.slice(-4).reverse().map(d => {
+    const m = d.legal_memo;
+    return `<div class="ev"><span class="who">${m.state} · #${d.id}</span>
+      <span class="msg"><span class="muted">[${m.source}]</span> `
+      + (m.analysis.split('\n')[0]||'').replace(/</g,'&lt;')
+      + ` <span class="muted">— ${m.disclaimer}</span></span></div>`;
+  }).join('') : '<div class="empty">No legal memos yet (generated at contract stage).</div>';
 }
 
 async function tick(){

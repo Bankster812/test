@@ -67,6 +67,14 @@ class ComplianceAgent(BaseAgent):
             deal.flags.append(f"Contract ≥ ${self.company.cfg.CEO_APPROVAL_THRESHOLD:,.0f} "
                               f"— CEO approval required.")
 
+        # Pull a legal-research memo from the LegalAnalyst sub-agent.
+        legal = self.company.agents.get("LEGAL")
+        if legal is not None:
+            deal.legal_memo = legal.analyze(
+                st, deal_type="wholesale assignment",
+                pre_foreclosure=("foreclosure" in deal.prop.distress.lower()),
+            )
+
         deal.compliance_done = True
         deal.log(self.name, "Compliance review: " + " ".join(deal.flags))
 

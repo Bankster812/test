@@ -21,6 +21,8 @@ from wholesale.compliance import ComplianceGate, gate as gate_mod
 from wholesale.sourcing import build_rows, KEYWORDS
 from wholesale.sourcing.county_records import dallas_notice_urls, public_search_url
 from wholesale.outreach import draft, TEMPLATES
+from wholesale.disposition import PLATFORMS, by_payout
+from wholesale.sourcing.providers import get_provider, SyntheticProvider
 
 
 def _make_deal(state="TX", price=300_000, market=400_000) -> Deal:
@@ -36,7 +38,8 @@ def _make_deal(state="TX", price=300_000, market=400_000) -> Deal:
 
 def test_company_boots_with_full_roster():
     co = Company(cfg=config, seed=7)
-    assert len(co.agents) == 6
+    assert len(co.agents) == 8
+    assert "LEGAL" in co.agents and "BIZDEV" in co.agents
     # Every non-terminal stage has exactly one owning agent.
     for stage in PIPELINE_ORDER:
         if stage.is_terminal:
@@ -53,7 +56,10 @@ def test_snapshot_is_json_serializable_and_consistent():
     json.dumps(snap)
     # Stage counts account for every deal exactly once.
     assert sum(snap["counts"].values()) == len(co.deals)
-    assert len(snap["agents"]) == 6
+    assert len(snap["agents"]) == 8
+    # New panels are present and serialisable.
+    assert "contacts" in snap and "dispo_platforms" in snap
+    assert len(snap["dispo_platforms"]) == len(PLATFORMS)
 
 
 def test_pipeline_closes_deals_deterministically():
@@ -204,6 +210,44 @@ def test_outreach_drafts_are_b2b_and_personalized():
         assert False, "expected ValueError"
     except ValueError:
         pass
+
+
+def test_bizdev_drafts_contacts_into_outbox():
+    co = Company(cfg=config, seed=5)
+    n_contacts = len(co.contacts)
+    assert n_contacts > 0
+    for _ in range(n_contacts):  # enough ticks to clear the queue
+        co.tick()
+    assert all(c.status == "drafted" for c in co.contacts)
+    # Each draft was queued to the (dry-run) integration outbox as email.
+    assert any(r.channel == "email" for r in co.integrations.outbox)
+
+
+def test_legal_analyst_returns_memo_with_disclaimer():
+    co = Company(cfg=config, seed=1)
+    memo = co.legal_review("TX", pre_foreclosure=True)
+    assert memo["state"] == "TX"
+    assert "NOT legal advice" in memo["disclaimer"]
+    assert memo["source"] in ("claude", "heuristic")
+    assert "foreclosure" in memo["analysis"].lower()
+
+
+def test_dispo_platforms_have_payout_model_and_urls():
+    assert len(PLATFORMS) >= 6
+    for p in PLATFORMS:
+        assert p.payout in ("assignment", "finder", "both")
+        assert p.name and p.url
+    # Assignment-spread filter includes 'both' platforms too.
+    assert all(p.payout in ("assignment", "both") for p in by_payout("assignment"))
+
+
+def test_lead_provider_factory_defaults_to_synthetic():
+    p = get_provider(config.HQ_MARKETS, seed=3)
+    assert isinstance(p, SyntheticProvider) and p.available()
+    leads = p.fetch_leads("TX-Dallas", 3)
+    assert len(leads) == 3
+    prop, seller = leads[0]
+    assert prop.est_market_value > 0 and seller.walk_floor > 0
 
 
 def test_decide_rejects_unknown_deal_and_bad_decision():

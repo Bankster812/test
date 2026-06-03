@@ -22,6 +22,7 @@ from typing import Any
 from .. import config
 from ..data.buyers import default_book
 from ..data.market import MarketFeed
+from ..disposition import PLATFORMS as _DISPO_PLATFORMS
 from ..integrations import IntegrationHub
 from .eventbus import EventBus
 from .models import Deal, Stage, PIPELINE_ORDER
@@ -37,6 +38,7 @@ class Company:
         self.buyers = default_book(cfg.HQ_MARKETS, seed=seed)
 
         self.deals: list[Deal] = []
+        self.contacts: list = []          # B2B outreach queue (Riley/BizDev)
         self.tick_count = 0
         self.started = time.time()
 
@@ -52,6 +54,8 @@ class Company:
         for agent in self.agents.values():
             for stage in agent.owns:
                 self._stage_owner[stage] = agent
+
+        self._seed_contacts()
 
         self._lock = threading.Lock()
         self._running = False
@@ -90,10 +94,39 @@ class Company:
                                              f"Error on {deal.label}: {e}", level="warn",
                                              deal_id=deal.id)
 
-            # 3. Idle any agent that didn't act this tick.
+            # 3. Business development: work the B2B outreach queue.
+            self.agents["BIZDEV"].run()
+
+            # 4. Idle any agent that didn't act this tick.
             for agent in self.agents.values():
                 if agent.last_active < tick_start:
                     agent.idle()
+
+    def _seed_contacts(self) -> None:
+        """Seed a few illustrative B2B contacts so BizDev has a queue.
+
+        Replace with your real list of agents/wholesalers/buyers (public
+        business contacts). These are placeholders, not real people.
+        """
+        from ..agents.bizdev import Contact
+        market = "Dallas, TX"
+        self.contacts = [
+            Contact("DFW Realty Partner", "realtor", market, "75215"),
+            Contact("South Dallas Wholesaler", "cowholesale", market, "75215"),
+            Contact("Lone Star Cash Buyer", "cashbuyer", market, "75215"),
+            Contact("Metroplex Flip Fund", "cashbuyer", market, "Dallas County"),
+        ]
+
+    def add_contact(self, name: str, kind: str, market: str = "Dallas, TX",
+                    area: str = "75215", email: str = "") -> None:
+        from ..agents.bizdev import Contact
+        with self._lock:
+            self.contacts.append(Contact(name, kind, market, area, email))
+
+    def legal_review(self, state: str, deal_type: str = "wholesale assignment",
+                     pre_foreclosure: bool = False) -> dict:
+        """On-demand legal triage from the LegalAnalyst sub-agent."""
+        return self.agents["LEGAL"].analyze(state, deal_type, pre_foreclosure)
 
     def _blocked(self, deal: Deal) -> bool:
         # Deals awaiting an undecided CEO call are parked (compliance still
@@ -187,4 +220,6 @@ class Company:
                 "deals": [d.to_dict() for d in self.deals[-60:]],
                 "activity": self.bus.snapshot(80),
                 "outbox": [r.to_dict() for r in self.integrations.outbox[-30:]],
+                "contacts": [c.to_dict() for c in self.contacts[-30:]],
+                "dispo_platforms": [p.to_dict() for p in _DISPO_PLATFORMS],
             }
