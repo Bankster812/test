@@ -153,6 +153,23 @@ def test_contract_generator_marks_drafts_and_fills_fields():
     assert "ASSIGNABLE" in psa and "equitable interest" in psa
 
 
+def test_preforeclosure_packet_has_disclosures_and_legends():
+    deal = _make_deal(state="GA")
+    deal.contract_price = 120_000
+    deal.assignment_fee = 30_000
+    gen = ContractGenerator(buyer_entity="Keystone LLC")
+    packet = gen.preforeclosure_packet(deal)
+    assert set(packet) >= {"direct_mail_letter", "disclosure_addendum",
+                           "purchase_agreement", "assignment_agreement"}
+    # GA mailers must carry the SB 90 solicitation legend.
+    assert "THIS IS A SOLICITATION" in packet["direct_mail_letter"]
+    # Every disclosure is a flagged draft (not presented as legal advice).
+    assert "NOT LEGAL ADVICE" in packet["disclosure_addendum"]
+    # FL disclosure cites the equity-purchaser statute.
+    fl = ContractGenerator().disclosure_addendum(_make_deal(state="FL"))
+    assert "501.1377" in fl
+
+
 def test_compliance_gate_blocks_until_fully_attested():
     g = ComplianceGate()
     # Default posture is BLOCKED.

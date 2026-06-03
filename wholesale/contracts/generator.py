@@ -17,6 +17,7 @@ import os
 
 from .. import config
 from . import templates
+from . import disclosures
 
 
 class ContractGenerator:
@@ -47,6 +48,26 @@ class ContractGenerator:
 
     def assignment_agreement(self, deal) -> str:
         return templates.ASSIGNMENT_AGREEMENT.format(**self._ctx(deal))
+
+    def disclosure_addendum(self, deal) -> str:
+        """State-specific pre-foreclosure / assignment disclosure (draft)."""
+        return disclosures.equity_disclosure(deal.prop.state, self.buyer_entity)
+
+    def outreach_letter(self, deal, names_price: bool = False) -> str:
+        """TCPA-safe direct-mail first touch (draft), with state legends."""
+        p, s = deal.prop, deal.seller
+        return disclosures.direct_mail_letter(
+            p.state, s.name, p.address, p.city, self.buyer_entity,
+            names_price=names_price)
+
+    def preforeclosure_packet(self, deal) -> dict[str, str]:
+        """The full compliant packet: mail letter + disclosure + PSA + assignment."""
+        return {
+            "direct_mail_letter": self.outreach_letter(deal),
+            "disclosure_addendum": self.disclosure_addendum(deal),
+            "purchase_agreement": self.purchase_agreement(deal),
+            "assignment_agreement": self.assignment_agreement(deal),
+        }
 
     def write_pair(self, deal, out_dir: str = "contracts_out") -> tuple[str, str]:
         """Write both drafts to disk; returns the two file paths."""
