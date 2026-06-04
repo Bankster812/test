@@ -25,6 +25,7 @@ from ..data.market import MarketFeed
 from ..disposition import PLATFORMS as _DISPO_PLATFORMS
 from ..integrations import IntegrationHub
 from .eventbus import EventBus
+from .cockpit import build_action_queue
 from .models import Deal, Stage, PIPELINE_ORDER
 
 
@@ -123,6 +124,39 @@ class Company:
         """On-demand legal triage from the LegalAnalyst sub-agent."""
         return self.agents["LEGAL"].analyze(state, deal_type, pre_foreclosure)
 
+    def do_action(self, action_id: str, decision: str | None = None) -> bool:
+        """Execute one Action-Queue item (the human-gated last mile).
+
+        Draft-only: 'send' marks the outreach done and logs it (nothing leaves
+        the machine unless integrations are armed). 'approve' routes to the CEO
+        decision. Other kinds are acknowledged.
+        """
+        with self._lock:
+            kind, _, ref = action_id.partition(":")
+            if kind == "send":
+                try:
+                    contact = self.contacts[int(ref)]
+                except (ValueError, IndexError):
+                    return False
+                if contact.status != "drafted":
+                    return False
+                contact.status = "sent"
+                self.bus.publish("Riley (Business Development)",
+                                 f"Marked outreach to {contact.name} as sent "
+                                 f"({'live' if self.integrations.crm.armed else 'dry-run'}).",
+                                 level="info")
+                return True
+            if kind == "ceo":
+                return self._decide_locked(int(ref), decision or "approved")
+            if kind in ("sign", "list"):
+                self.bus.publish(self.cfg.CEO_NAME,
+                                 f"Acknowledged {kind} action {ref}.", level="info")
+                return True
+        return False
+
+    def action_queue(self) -> list[dict]:
+        return build_action_queue(self)
+
     def _blocked(self, deal: Deal) -> bool:
         # Deals awaiting an undecided CEO call are parked (compliance still
         # "handles" them to keep the awaiting-status visible, so not blocked
@@ -137,17 +171,21 @@ class Company:
     # --------------------------------------------------------------- CEO acts
     def decide(self, deal_id: int, decision: str) -> bool:
         """CEO approves/rejects an escalated deal. Returns True if applied."""
+        with self._lock:
+            return self._decide_locked(deal_id, decision)
+
+    def _decide_locked(self, deal_id: int, decision: str) -> bool:
+        """Caller must hold self._lock."""
         if decision not in ("approved", "rejected"):
             return False
-        with self._lock:
-            for d in self.deals:
-                if d.id == deal_id and d.needs_ceo and d.ceo_decision is None:
-                    d.ceo_decision = decision
-                    d.log(self.cfg.CEO_NAME, f"CEO {decision} the deal.")
-                    self.bus.publish(self.cfg.CEO_NAME,
-                                     f"{decision.title()} {d.label}.",
-                                     level="escalate", deal_id=d.id)
-                    return True
+        for d in self.deals:
+            if d.id == deal_id and d.needs_ceo and d.ceo_decision is None:
+                d.ceo_decision = decision
+                d.log(self.cfg.CEO_NAME, f"CEO {decision} the deal.")
+                self.bus.publish(self.cfg.CEO_NAME,
+                                 f"{decision.title()} {d.label}.",
+                                 level="escalate", deal_id=d.id)
+                return True
         return False
 
     # ------------------------------------------------------------- run thread
@@ -212,6 +250,7 @@ class Company:
                 "pipeline_order": [s.value for s in PIPELINE_ORDER],
                 "agents": [a.snapshot() for a in self.agents.values()],
                 "ceo_queue": ceo_queue,
+                "action_queue": build_action_queue(self),
                 "deals": [d.to_dict() for d in self.deals[-60:]],
                 "activity": self.bus.snapshot(80),
                 "outbox": [r.to_dict() for r in self.integrations.outbox[-30:]],

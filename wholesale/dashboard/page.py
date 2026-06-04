@@ -64,9 +64,10 @@ PAGE = r"""<!doctype html>
     margin-bottom:6px;font-size:11px;cursor:default}
   .chip .a{color:var(--dim);font-size:10px}
   .chip .f{color:var(--win);font-weight:600}
-  .ceo .card{background:var(--panel2);border:1px solid #4a2d6b;border-radius:10px;padding:11px;margin-bottom:9px}
-  .ceo .card .h{font-weight:600;margin-bottom:4px}
-  .ceo .row{display:flex;gap:8px;margin-top:8px}
+  .ceo .card,#actions .card{background:var(--panel2);border:1px solid #4a2d6b;border-radius:10px;padding:11px;margin-bottom:9px}
+  .ceo .card .h,#actions .card .h{font-weight:600;margin-bottom:4px}
+  .ceo .row,#actions .row{display:flex;gap:8px;margin-top:8px}
+  #actions .card .f{color:var(--win)}
   button{font:inherit;border:1px solid var(--line);background:#1a2530;color:var(--txt);
     padding:6px 12px;border-radius:8px;cursor:pointer}
   button.approve{background:#143a26;border-color:#1d5b39;color:var(--win)}
@@ -95,6 +96,11 @@ PAGE = r"""<!doctype html>
 </header>
 <main>
   <div class="kpis" id="kpis"></div>
+
+  <section>
+    <h2>⚡ Action Queue — your last mile (everything else is automated)</h2>
+    <div class="panel"><div id="actions"></div></div>
+  </section>
 
   <section>
     <h2>Agents — who's doing what</h2>
@@ -150,6 +156,31 @@ async function decide(id, decision){
   tick();
 }
 
+async function act(action_id, decision){
+  await fetch('/api/action',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({action_id,decision})});
+  tick();
+}
+
+const ACT_ICON = {approve:'🟣',sign:'✍️',list:'📣',send:'✉️'};
+function actionRow(a){
+  const v = a.value ? ' · <span class="f">'+fmt(a.value)+'</span>' : '';
+  let btn;
+  if(a.kind==='approve'){
+    btn = `<button class="approve" onclick="act('${a.id}','approved')">Approve</button>
+           <button class="reject" onclick="act('${a.id}','rejected')">Reject</button>`;
+  } else if(a.kind==='send'){
+    btn = `<button class="approve" onclick="act('${a.id}')">Mark sent</button>`;
+  } else {
+    btn = `<button onclick="act('${a.id}')">Done</button>`;
+  }
+  return `<div class="card">
+    <div class="h">${ACT_ICON[a.kind]||'•'} ${a.title}${v}</div>
+    <div class="muted">${a.detail}</div>
+    <div class="row">${btn}</div>
+  </div>`;
+}
+
 function kpi(v,l,cls=''){return `<div class="kpi ${cls}"><div class="v">${v}</div><div class="l">${l}</div></div>`}
 
 function render(s){
@@ -171,6 +202,12 @@ function render(s){
     kpi(fmt(f.pipeline_fee_value),'Pipeline value') +
     kpi(fmt(f.avg_fee),'Avg fee / deal') +
     kpi(f.dead,'Dead');
+
+  const aq = s.action_queue || [];
+  $('#actions').innerHTML = aq.length
+    ? `<div class="muted" style="margin-bottom:8px">${aq.length} action(s) need you — `
+      + `the agents prepared everything below.</div>` + aq.map(actionRow).join('')
+    : '<div class="empty">Nothing needs you right now — agents are working.</div>';
 
   $('#agents').innerHTML = s.agents.map(a => `
     <div class="agent" style="border-left-color:${a.color}">

@@ -276,6 +276,25 @@ def test_lead_provider_factory_defaults_to_synthetic():
     assert prop.est_market_value > 0 and seller.walk_floor > 0
 
 
+def test_action_queue_aggregates_and_executes():
+    co = Company(cfg=config, seed=7)
+    for _ in range(80):
+        co.tick()
+    q = co.action_queue()
+    assert q, "expected pending actions"
+    # Sorted by priority (CEO approvals first).
+    assert q[0]["priority"] <= q[-1]["priority"]
+    # Snapshot exposes it for the dashboard.
+    assert "action_queue" in co.snapshot()
+    # A 'send' action marks the contact sent (draft-only).
+    send = next(a for a in q if a["kind"] == "send")
+    assert co.do_action(send["id"]) is True
+    assert co.do_action(send["id"]) is False  # already sent
+    # Unknown action ids are rejected.
+    assert co.do_action("send:99999") is False
+    assert co.do_action("bogus:1") is False
+
+
 def test_decide_rejects_unknown_deal_and_bad_decision():
     co = Company(cfg=config, seed=4)
     assert co.decide(999999, "approved") is False

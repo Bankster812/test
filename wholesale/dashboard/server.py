@@ -47,13 +47,17 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(404, b'{"error":"not found"}', "application/json")
 
     def do_POST(self) -> None:
-        if self.path != "/api/decide":
+        if self.path not in ("/api/decide", "/api/action"):
             self._send(404, b'{"error":"not found"}', "application/json")
             return
         try:
             length = int(self.headers.get("Content-Length", "0"))
             data = json.loads(self.rfile.read(length) or b"{}")
-            ok = _company.decide(int(data.get("deal_id")), str(data.get("decision")))
+            if self.path == "/api/decide":
+                ok = _company.decide(int(data.get("deal_id")), str(data.get("decision")))
+            else:  # /api/action — execute one Action-Queue item
+                ok = _company.do_action(str(data.get("action_id")),
+                                        data.get("decision"))
             self._send(200 if ok else 400,
                        json.dumps({"ok": ok}).encode(), "application/json")
         except Exception as e:  # noqa: BLE001
