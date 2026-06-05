@@ -52,8 +52,6 @@ class ClaudeClient:
 
     # -- backend selection --------------------------------------------------
     def _pick_backend(self) -> str:
-        # Explicit override wins. CLI (subscription) is OPT-IN: each call spawns
-        # a `claude` subprocess, so it is not auto-selected on the hot loop.
         forced = os.environ.get("WS_LLM_BACKEND", "").lower()
         if forced in ("api", "cli", "off"):
             if forced == "off":
@@ -65,6 +63,10 @@ class ClaudeClient:
             return forced
         if self.api_key:
             return "api"
+        # Auto-detect Claude subscription when the CLI is in PATH.
+        # Guard: skip if running inside Claude Code itself to avoid recursive subprocess.
+        if self._cli and not os.environ.get("CLAUDE_CODE_ENTRYPOINT"):
+            return "cli"
         return "heuristic"
 
     def is_available(self) -> bool:
