@@ -117,7 +117,7 @@ This calls `wholesale.sourcing.zillow.ZillowScraper` directly — exactly what t
 xvfb-run -a python3 wholesale/.claude/skills/source-with-camoufox/driver.py probe
 ```
 
-Hits `bot.sannysoft.com` and saves a screenshot of the detection report to `screenshots/sannysoft.png`. Useful when you're debugging "Zillow blocks me" and want to see whether the underlying fingerprint is OK.
+Hits `bot.sannysoft.com` and saves a screenshot of the detection report to `screenshots/sannysoft.png`. Useful when you're debugging "Zillow blocks me" and want to see whether the underlying fingerprint is OK. **Note:** this command was NOT verified in the build container (sannysoft.com unreachable through the sandbox network policy). It will work on a normal Linux host.
 
 ## Use it from code
 
@@ -140,6 +140,7 @@ Env vars:
 
 ## Gotchas (battle scars from this container)
 
+- **Extract returns 0 listings on some runs, 10 on others** — confirmed flaky. Zillow's PerimeterX rate-limits same-fingerprint requests; after ~1 successful scrape per minute it soft-blocks subsequent ones from the same IP+UA combo. `ZillowScraper.fetch()` auto-retries once with a fresh Camoufox session (new fingerprint). If you see persistent zeros, set `WS_BROWSER_PROXY` to a residential rotation. Re-running the driver typically works.
 - **`camoufox fetch` returns 403 from GitHub API** — happens whenever the network has unauthenticated rate-limiting (sandboxes, corp NAT). Use the offline-install fallback above (download release zip directly via `https://github.com/.../releases/download/...`, which is served from a separate CDN with no rate-limit).
 - **`ImportError: cannot import name 'CLoader' from 'yaml'`** — the system PyYAML is too old. `pip install --user --upgrade PyYAML` fixes it (6.0+ ships `CLoader`).
 - **`FileNotFoundError: Version information not found at .../version.json`** — happens with the offline install. Write `version.json` manually (see fallback above). The format is `{"version": "<X.Y.Z>", "release": "<beta.N>"}`.
@@ -170,6 +171,18 @@ listings extracted from __NEXT_DATA__: 10+ per filter, 4 filters → up to 40 le
 ## ToS warning
 
 Zillow / Realtor.com / Redfin **explicitly prohibit automated access in their Terms of Use**. Camoufox defeats the technical bot-detection — it does not defeat the legal claim. Whether your operation is lawful is your call, and it depends on your jurisdiction, intended use, volume, and how aggressively the target enforces. For an audit-clean feed without legal risk, wire PropStream / BatchLeads / ATTOM through their official APIs (env keys: `PROPSTREAM_API_KEY` / `ATTOM_API_KEY`) — those adapters live in `wholesale/sourcing/providers.py`.
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| `403 ... /repos/daijro/camoufox/releases` on `camoufox fetch` | GitHub API rate-limit on unauthenticated requests | Use offline-install fallback above |
+| `ImportError: cannot import name 'CLoader' from 'yaml'` | System PyYAML too old | `pip install --user --upgrade PyYAML` |
+| `FileNotFoundError: Version information not found at .../version.json` | Manual install skipped writing version.json | `echo '{"version":"<X.Y.Z>","release":"<beta.N>"}' > ~/.cache/camoufox/version.json` |
+| `Page.goto: SEC_ERROR_UNKNOWN_ISSUER` | Container's TLS-MITM proxy | Wrapper already sets `ignore_https_errors=True`; nothing to do |
+| `Page.goto: SEC_ERROR_UNKNOWN_ISSUER` on a non-sandbox host | Real cert problem | Don't bypass — investigate the network path |
+| `extract` returns 0 listings, but `zillow` shows 9 cards | PerimeterX rate-limit on consecutive requests | Auto-retries once; re-run; or set `WS_BROWSER_PROXY` |
+| Driver hangs on launch | Xvfb not running | Wrap with `xvfb-run -a` |
 
 ## Files
 

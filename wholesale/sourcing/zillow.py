@@ -49,10 +49,27 @@ class ZillowScraper:
     def available(self) -> bool:
         return CamoufoxBrowser.is_available()
 
-    def fetch(self, limit: int = 25) -> list[tuple[Property, Seller]]:
-        """Scrape up to `limit` distressed listings across configured markets."""
+    def fetch(self, limit: int = 25, max_retries: int = 1
+              ) -> list[tuple[Property, Seller]]:
+        """Scrape up to `limit` distressed listings across configured markets.
+
+        Zillow's PerimeterX rate-limits same-fingerprint requests, so a fetch
+        may return 0 even when the site is up. `max_retries` retries the
+        entire fetch with a fresh Camoufox session (new fingerprint).
+        """
         if not self.available():
             return []
+        for attempt in range(max_retries + 1):
+            results = self._fetch_once(limit)
+            if results:
+                return results
+            if attempt < max_retries:
+                logger.info("Zillow returned 0 listings; retrying with fresh "
+                            "browser session (attempt %d/%d)",
+                            attempt + 2, max_retries + 1)
+        return results
+
+    def _fetch_once(self, limit: int) -> list[tuple[Property, Seller]]:
         results: list[tuple[Property, Seller]] = []
         try:
             with CamoufoxBrowser() as b:
