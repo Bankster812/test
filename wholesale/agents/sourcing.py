@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from .. import policy
 from ..core.models import Stage
 from .base import BaseAgent
 
@@ -16,6 +17,20 @@ class ScoutAgent(BaseAgent):
     def handle(self, deal) -> None:
         self._set("thinking", f"Qualifying {deal.prop.address}", deal.id)
         p, s = deal.prop, deal.seller
+
+        # Policy gate FIRST (default-deny): never work a blocked state.
+        status = policy.state_status(p.state)
+        if status == "blocked":
+            deal.stage = Stage.DEAD
+            reason = policy.state_rule(p.state).get("reason", "state not approved")
+            deal.flags.append(f"Blocked market ({p.state}): {reason}")
+            deal.log(self.name, f"Blocked by policy — {p.state}: {reason}")
+            self.say(f"Policy-blocked {deal.label} ({p.state}: {reason}).",
+                     level="warn", deal_id=deal.id)
+            self.handled += 1
+            return
+        if status == "caution":
+            deal.flags.append(f"Caution market ({p.state}) — extra review required.")
 
         # Hard screen: is there any conceivable spread? (asking vs market)
         headroom = p.est_market_value - s.asking_price

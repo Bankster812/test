@@ -41,8 +41,11 @@ class AnalystAgent(BaseAgent):
         repairs = int(round(p.sqft * ppsf * age_surcharge, -2))
         rehab_ratio = repairs / arv
 
-        # 70% rule → MAO, reserving our target assignment fee.
+        # 70% rule → MAO, reserving our target assignment fee. Three tiers give
+        # a negotiating envelope (aggressive pays more / thinner buffer).
         mao = int(round(arv * config.ARV_RULE - repairs - config.TARGET_ASSIGNMENT_FEE, -3))
+        mao_aggressive = int(round(arv * 0.75 - repairs - config.MIN_ASSIGNMENT_FEE, -3))
+        mao_conservative = int(round(arv * 0.65 - repairs - config.TARGET_ASSIGNMENT_FEE, -3))
         # We aim a touch under MAO to leave negotiating room.
         target_offer = int(round(mao * 0.96, -3))
 
@@ -51,6 +54,17 @@ class AnalystAgent(BaseAgent):
             and rehab_ratio <= config.MAX_REHAB_RATIO
             and (arv - repairs - target_offer) >= config.MIN_ASSIGNMENT_FEE
         )
+
+        # Route: assignment by default; double-close when fee visibility is large
+        # (a fat spread on a low-price deal is conspicuous on the settlement
+        # statement) — keeps the spread private. Reject if no-go.
+        spread = arv - repairs - target_offer
+        if not go:
+            route = "do_not_pursue"
+        elif target_offer and spread > 0.5 * target_offer:
+            route = "double_close"
+        else:
+            route = "assignment"
 
         rationale = self.reason(
             system="You are a real-estate wholesaling underwriter. Given the figures, "
@@ -66,10 +80,14 @@ class AnalystAgent(BaseAgent):
         )
 
         deal.uw = Underwriting(arv=arv, repair_estimate=repairs, mao=mao,
-                               target_offer=target_offer, rehab_ratio=round(rehab_ratio, 3),
+                               mao_aggressive=mao_aggressive,
+                               mao_conservative=mao_conservative,
+                               target_offer=target_offer,
+                               target_assignment_fee=config.TARGET_ASSIGNMENT_FEE,
+                               route=route, rehab_ratio=round(rehab_ratio, 3),
                                go=go, rationale=rationale)
         deal.log(self.name, f"ARV ${arv:,} | repairs ${repairs:,} | MAO ${mao:,} | "
-                            f"{'GO' if go else 'NO-GO'} — {rationale}")
+                            f"route {route} | {'GO' if go else 'NO-GO'} — {rationale}")
 
         if go:
             deal.stage = Stage.OUTREACH

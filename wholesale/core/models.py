@@ -95,8 +95,12 @@ class Buyer:
 class Underwriting:
     arv: int = 0                     # after-repair value
     repair_estimate: int = 0
-    mao: int = 0                     # maximum allowable offer
+    mao: int = 0                     # maximum allowable offer (base case)
+    mao_aggressive: int = 0          # thinner buffer
+    mao_conservative: int = 0        # fatter buffer
     target_offer: int = 0
+    target_assignment_fee: int = 0
+    route: str = "assignment"        # "assignment" | "double_close" | "do_not_pursue"
     rehab_ratio: float = 0.0
     go: bool = False
     rationale: str = ""

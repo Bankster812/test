@@ -276,6 +276,41 @@ def test_lead_provider_factory_defaults_to_synthetic():
     assert prop.est_market_value > 0 and seller.walk_floor > 0
 
 
+def test_policy_engine_default_deny_and_status():
+    from wholesale import policy
+    assert policy.state_status("TX") == "allowed"
+    assert policy.state_status("OH") == "caution"
+    assert policy.state_status("NC") == "blocked"
+    assert policy.state_status("CA") == "blocked"
+    assert policy.state_status("ZZ") == "blocked"      # default deny
+    assert policy.is_operable("TX") and not policy.is_operable("NC")
+
+
+def test_scout_blocks_disallowed_market():
+    from wholesale.core.models import Deal, Property, Seller, Stage
+    co = Company(cfg=config, seed=1)
+    prop = Property(address="1 X St", city="Charlotte", state="NC", zip="28201",
+                    metro="NC-Charlotte", beds=3, baths=2.0, sqft=1400,
+                    year_built=1985, property_type="SFR", distress="vacant",
+                    est_market_value=300_000)
+    seller = Seller(name="A B", motivation="distress", asking_price=280_000,
+                    reachable_via="phone", flexibility=0.4, walk_floor=180_000)
+    d = Deal(prop=prop, seller=seller, stage=Stage.SOURCED)
+    co.agents["SCOUT"].handle(d)
+    assert d.stage == Stage.DEAD
+    assert any("Blocked market" in f for f in d.flags)
+
+
+def test_underwriting_emits_tiers_and_route():
+    co = Company(cfg=config, seed=2)
+    deal = _make_deal(state="TX")
+    deal.stage = Stage.UNDERWRITING
+    co.agents["ANALYST"].handle(deal)
+    uw = deal.uw
+    assert uw.mao_conservative <= uw.mao <= uw.mao_aggressive
+    assert uw.route in ("assignment", "double_close", "do_not_pursue")
+
+
 def test_action_queue_aggregates_and_executes():
     co = Company(cfg=config, seed=7)
     for _ in range(80):

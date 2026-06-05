@@ -20,6 +20,7 @@ import time
 from typing import Any
 
 from .. import config
+from .. import policy
 from ..data.buyers import default_book
 from ..data.market import MarketFeed
 from ..disposition import PLATFORMS as _DISPO_PLATFORMS
@@ -288,4 +289,5 @@ class Company:
                 "outbox": [r.to_dict() for r in self.integrations.outbox[-30:]],
                 "contacts": [c.to_dict() for c in self.contacts[-30:]],
                 "dispo_platforms": [p.to_dict() for p in _DISPO_PLATFORMS],
+                "policy": policy.summary(),
             }

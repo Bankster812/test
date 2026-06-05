@@ -1,0 +1,9 @@
+{
+  "global_rules": {
+    "title_company_disbursement_required": true,
+    "foreign_payee_review_required": true,
+    "cpa_review_required_before_first_close": true,
+    "attorney_review_required_before_first_close": true,
+    "banking_ready_required": true
+  }
+}
