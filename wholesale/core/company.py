@@ -60,6 +60,7 @@ class Company:
 
         self._lock = threading.Lock()
         self._running = False
+        self.paused = False
         self._thread: threading.Thread | None = None
 
         self.bus.publish(self.cfg.COMPANY_NAME,
@@ -198,8 +199,38 @@ class Company:
 
     def _loop(self) -> None:
         while self._running:
-            self.tick()
+            if not self.paused:
+                self.tick()
             time.sleep(self.cfg.TICK_SECONDS)
+
+    def pause(self) -> bool:
+        self.paused = True
+        self.bus.publish(self.cfg.COMPANY_NAME, "Autopilot paused by CEO.", level="warn")
+        return True
+
+    def resume(self) -> bool:
+        self.paused = False
+        self.bus.publish(self.cfg.COMPANY_NAME, "Autopilot resumed by CEO.", level="info")
+        return True
+
+    def tick_now(self) -> bool:
+        """Run a single tick on demand (used by the UI 'step' button)."""
+        self.tick()
+        return True
+
+    def get_deal(self, deal_id: int):
+        for d in self.deals:
+            if d.id == deal_id:
+                return d
+        return None
+
+    def contract_packet(self, deal_id: int) -> dict | None:
+        """Generate the attorney-review document packet for a deal."""
+        from ..contracts import ContractGenerator
+        d = self.get_deal(deal_id)
+        if d is None:
+            return None
+        return ContractGenerator(buyer_entity=self.cfg.COMPANY_NAME).preforeclosure_packet(d)
 
     def stop(self) -> None:
         self._running = False
@@ -230,6 +261,7 @@ class Company:
                 "ceo": self.cfg.CEO_NAME,
                 "uptime_s": round(time.time() - self.started, 1),
                 "tick": self.tick_count,
+                "paused": self.paused,
                 "armed": self.integrations.crm.armed,
                 "llm": {
                     "available": self.agents["SCOUT"].llm.is_available(),
