@@ -1,0 +1,40 @@
+{
+  "default_status": "blocked",
+  "states": {
+    "TX": {
+      "status": "allowed",
+      "allow_direct_mail": true,
+      "allow_calling": "after_legal_review",
+      "allow_sms": "after_legal_review",
+      "allow_assignment_marketing": true,
+      "allow_property_marketing_unlicensed": false,
+      "attorney_review_required": true,
+      "title_partner_required": true
+    },
+    "FL": {
+      "status": "allowed",
+      "allow_direct_mail": true,
+      "allow_calling": "after_legal_review",
+      "allow_sms": "after_legal_review",
+      "allow_assignment_marketing": true,
+      "allow_property_marketing_unlicensed": false,
+      "distressed_owner_extra_review": true,
+      "attorney_review_required": true,
+      "title_partner_required": true
+    },
+    "OH": {
+      "status": "caution",
+      "allow_direct_mail": false,
+      "allow_calling": false,
+      "allow_sms": false,
+      "allow_assignment_marketing": "caution",
+      "allow_property_marketing_unlicensed": false,
+      "separate_disclosure_required": true,
+      "attorney_review_required": true,
+      "title_partner_required": true
+    },
+    "GA": { "status": "blocked", "reason": "unreviewed — confirm 2025-26 licensing/solicitation rules with counsel" },
+    "CA": { "status": "blocked", "reason": "heightened wholesaling restrictions" },
+    "NC": { "status": "blocked", "reason": "NCREC aggressive on unlicensed activity; foreclosure-rescue statute" }
+  }
+}

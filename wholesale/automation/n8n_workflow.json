@@ -1,0 +1,58 @@
+{
+  "name": "Wholesale — Daily Action Queue Digest",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": { "interval": [ { "field": "hours", "hoursInterval": 8 } ] }
+      },
+      "id": "schedule-trigger",
+      "name": "Every 8h",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [ 240, 300 ]
+    },
+    {
+      "parameters": {
+        "url": "=http://HOST:8200/api/state",
+        "options": { "timeout": 15000 }
+      },
+      "id": "http-get-state",
+      "name": "GET /api/state",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [ 460, 300 ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const s = $input.first().json;\nconst q = s.action_queue || [];\nconst f = s.financials || {};\nconst money = q.reduce((a, x) => a + (x.value || 0), 0);\nconst lines = q.slice(0, 15).map(a => `• [${a.kind}] ${a.title}` + (a.value ? ` ($${a.value.toLocaleString()})` : ''));\nconst text = `*Wholesale Ops — ${q.length} action(s) need you*\\n` +\n  `Revenue: $${(f.revenue||0).toLocaleString()} · Active: ${f.active||0} · Pipeline fee value: $${(f.pipeline_fee_value||0).toLocaleString()}\\n` +\n  `Potential in queue: $${money.toLocaleString()}\\n\\n` +\n  (lines.join('\\n') || 'Nothing needs you — agents are working.') +\n  `\\n\\nOpen the cockpit to approve/send: http://HOST:8200/`;\nreturn [{ json: { text, count: q.length } }];"
+      },
+      "id": "build-digest",
+      "name": "Build digest",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [ 680, 300 ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=YOUR_SLACK_OR_EMAIL_WEBHOOK_URL",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { \"text\": $json.text } }}",
+        "options": {}
+      },
+      "id": "send-digest",
+      "name": "Send digest (Slack/Email webhook)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [ 900, 300 ]
+    }
+  ],
+  "connections": {
+    "Every 8h": { "main": [ [ { "node": "GET /api/state", "type": "main", "index": 0 } ] ] },
+    "GET /api/state": { "main": [ [ { "node": "Build digest", "type": "main", "index": 0 } ] ] },
+    "Build digest": { "main": [ [ { "node": "Send digest (Slack/Email webhook)", "type": "main", "index": 0 } ] ] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "meta": { "description": "Pulls the wholesale platform's Action Queue and sends you a digest. Set HOST and the webhook URL after import. Send-on-approval flows sit behind the human gate." }
+}

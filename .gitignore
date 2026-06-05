@@ -1,3 +1,6 @@
 **/__pycache__/
 *.pyc
 *.pyo
+
+# Generated wholesale contract drafts
+contracts_out/

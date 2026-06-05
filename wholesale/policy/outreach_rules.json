@@ -1,0 +1,9 @@
+{
+  "global_rules": {
+    "must_disclose_principal_status": true,
+    "must_not_claim_agency": true,
+    "must_not_promise_certainty": true,
+    "must_not_send_without_human_release": true,
+    "must_not_market_property_when_only_equitable_interest_is_permitted": true
+  }
+}
