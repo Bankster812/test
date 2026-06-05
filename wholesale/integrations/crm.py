@@ -36,9 +36,8 @@ class CRMAdapter(Adapter):
             "properties": properties or {},
         }
         summary = f"CRM upsert deal #{deal_id} -> stage '{stage}', ${amount:,}"
-        if self.armed:
-            self._live_upsert(payload)
-        return self._result("upsert_deal", str(deal_id), summary, payload)
+        delivered = self._dispatch(self._live_upsert, payload)
+        return self._result("upsert_deal", str(deal_id), summary, payload, delivered)
 
     def _live_upsert(self, payload: dict[str, Any]) -> None:  # pragma: no cover
         # Wire to HubSpot here (MCP manage_crm_objects / REST). Intentionally

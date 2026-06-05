@@ -19,9 +19,8 @@ class EmailAdapter(Adapter):
         payload = {"to": to, "subject": subject, "body": body}
         preview = body.replace("\n", " ")[:80]
         summary = f"Email -> {to}: \"{subject}\" — {preview}…"
-        if self.armed:
-            self._live_send(payload)
-        return self._result("send", to, summary, payload)
+        delivered = self._dispatch(self._live_send, payload)
+        return self._result("send", to, summary, payload, delivered)
 
     def _live_send(self, payload: dict) -> None:  # pragma: no cover
         raise NotImplementedError("Live email transport not wired — arm deliberately.")

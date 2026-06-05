@@ -38,8 +38,10 @@ def _make_deal(state="TX", price=300_000, market=400_000) -> Deal:
 
 def test_company_boots_with_full_roster():
     co = Company(cfg=config, seed=7)
-    assert len(co.agents) == 8
+    assert len(co.agents) == 11
     assert "LEGAL" in co.agents and "BIZDEV" in co.agents
+    # Executive + governance roster from the playbook.
+    assert "CHIEF" in co.agents and "QA" in co.agents and "FOREIGN" in co.agents
     # Every non-terminal stage has exactly one owning agent.
     for stage in PIPELINE_ORDER:
         if stage.is_terminal:
@@ -56,7 +58,7 @@ def test_snapshot_is_json_serializable_and_consistent():
     json.dumps(snap)
     # Stage counts account for every deal exactly once.
     assert sum(snap["counts"].values()) == len(co.deals)
-    assert len(snap["agents"]) == 8
+    assert len(snap["agents"]) == 11
     # New panels are present and serialisable.
     assert "contacts" in snap and "dispo_platforms" in snap
     assert len(snap["dispo_platforms"]) == len(PLATFORMS)

@@ -19,19 +19,28 @@ from .base import Adapter, DispatchResult
 from .crm import CRMAdapter
 from .email import EmailAdapter
 from .slack import SlackAdapter
+from .dispo import DispoAdapter
 
 __all__ = ["Adapter", "DispatchResult", "CRMAdapter", "EmailAdapter",
-           "SlackAdapter", "IntegrationHub"]
+           "SlackAdapter", "DispoAdapter", "IntegrationHub"]
 
 
 class IntegrationHub:
-    """Bundles the three adapters and tracks an outbox of dry-run dispatches."""
+    """Bundles the adapters and tracks an outbox of dispatches."""
 
     def __init__(self, armed: bool = False) -> None:
         self.crm = CRMAdapter(armed=armed)
         self.email = EmailAdapter(armed=armed)
         self.slack = SlackAdapter(armed=armed)
+        self.dispo = DispoAdapter(armed=armed)
         self.outbox: list[DispatchResult] = []
+
+    def arm(self, on: bool = True) -> bool:
+        """Flip all channels live/dry-run. Live sends still need a wired
+        transport; until then armed actions degrade to not-delivered."""
+        for a in (self.crm, self.email, self.slack, self.dispo):
+            a.armed = on
+        return on
 
     def _record(self, r: DispatchResult) -> DispatchResult:
         self.outbox.append(r)
@@ -47,6 +56,9 @@ class IntegrationHub:
 
     def slack_alert(self, **kw) -> DispatchResult:
         return self._record(self.slack.post(**kw))
+
+    def dispo_submit(self, **kw) -> DispatchResult:
+        return self._record(self.dispo.submit(**kw))
 
     def stats(self) -> dict[str, int]:
         return {

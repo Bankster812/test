@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
 import time
 
@@ -55,14 +56,21 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--seed", type=int, default=None, help="seed deal flow")
     ap.add_argument("--port", type=int, default=config.DASHBOARD_PORT)
     ap.add_argument("--host", default=config.DASHBOARD_HOST)
+    ap.add_argument("--subscription", action="store_true",
+                    help="use your Claude subscription via the local `claude` CLI "
+                         "(no API key needed)")
     args = ap.parse_args(argv)
+
+    if args.subscription:
+        os.environ["WS_LLM_BACKEND"] = "cli"
 
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     company = Company(cfg=config, seed=args.seed)
 
-    llm_state = ("Claude API (" + config.LLM_MODEL + ")"
-                 if company.agents["SCOUT"].llm.is_available()
-                 else "heuristic fallback (set ANTHROPIC_API_KEY for LLM agents)")
+    llm = company.agents["SCOUT"].llm
+    llm_state = (llm.describe() if llm.is_available()
+                 else "heuristic (use --subscription for your Claude plan, "
+                      "or set ANTHROPIC_API_KEY)")
     print(f"\n{config.COMPANY_NAME} — CEO: {config.CEO_NAME}")
     print(f"Agents: {', '.join(a.name for a in company.agents.values())}")
     print(f"Reasoning: {llm_state}")

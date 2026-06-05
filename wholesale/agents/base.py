@@ -22,6 +22,8 @@ class BaseAgent:
     name: str = "Agent"
     role: str = "Generic"
     color: str = "#8aa"
+    team: str = "Operations"         # org grouping under the Chief of Staff
+    desc: str = "A specialist agent."  # one-line "what I do" for the UI
     owns: tuple = ()                 # Stage values this agent processes
 
     def __init__(self, company) -> None:
@@ -64,6 +66,8 @@ class BaseAgent:
             "code": self.code,
             "name": self.name,
             "role": self.role,
+            "team": self.team,
+            "desc": self.desc,
             "color": self.color,
             "status": self.status,
             "task": self.current_task,

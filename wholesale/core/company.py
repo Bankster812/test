@@ -41,6 +41,7 @@ class Company:
 
         self.deals: list[Deal] = []
         self.contacts: list = []          # B2B outreach queue (Riley/BizDev)
+        self.oversight: dict = {}         # Chief-of-Staff accountability report
         self.tick_count = 0
         self.started = time.time()
 
@@ -100,7 +101,11 @@ class Company:
             # 3. Business development: work the B2B outreach queue.
             self.agents["BIZDEV"].run()
 
-            # 4. Idle any agent that didn't act this tick.
+            # 4. Governance: QA/Audit recent deals, then Chief-of-Staff oversight.
+            self.agents["QA"].run()
+            self.oversight = self.agents["CHIEF"].oversee()
+
+            # 5. Idle any agent that didn't act this tick.
             for agent in self.agents.values():
                 if agent.last_active < tick_start:
                     agent.idle()
@@ -125,6 +130,24 @@ class Company:
                      pre_foreclosure: bool = False) -> dict:
         """On-demand legal triage from the LegalAnalyst sub-agent."""
         return self.agents["LEGAL"].analyze(state, deal_type, pre_foreclosure)
+
+    def foreign_payee_readiness(self) -> dict:
+        """Non-resident payout/tax readiness checklist (Mei)."""
+        return self.agents["FOREIGN"].readiness()
+
+    def arm(self, on: bool = True) -> bool:
+        """Flip integrations live/dry-run (live still needs a wired transport)."""
+        self.integrations.arm(on)
+        self.bus.publish(self.cfg.CEO_NAME,
+                         f"Integrations {'ARMED (live)' if on else 'set to dry-run'} by CEO.",
+                         level="escalate" if on else "info")
+        return on
+
+    def dispo_submission(self, deal_id: int) -> dict | None:
+        """Buyer-facing summary + target platforms for a deal."""
+        from ..disposition.submission import submission_packet
+        d = self.get_deal(deal_id)
+        return submission_packet(d, self) if d else None
 
     def do_action(self, action_id: str, decision: str | None = None) -> bool:
         """Execute one Action-Queue item (the human-gated last mile).
@@ -266,7 +289,9 @@ class Company:
                 "armed": self.integrations.crm.armed,
                 "llm": {
                     "available": self.agents["SCOUT"].llm.is_available(),
+                    "backend": self.agents["SCOUT"].llm.backend,
                     "model": self.cfg.LLM_MODEL,
+                    "describe": self.agents["SCOUT"].llm.describe(),
                     "calls": self.agents["SCOUT"].llm.calls,
                     "failures": self.agents["SCOUT"].llm.failures,
                 },
@@ -290,4 +315,5 @@ class Company:
                 "contacts": [c.to_dict() for c in self.contacts[-30:]],
                 "dispo_platforms": [p.to_dict() for p in _DISPO_PLATFORMS],
                 "policy": policy.summary(),
+                "oversight": self.oversight,
             }

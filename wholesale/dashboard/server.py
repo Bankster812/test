@@ -45,22 +45,24 @@ class _Handler(BaseHTTPRequestHandler):
         elif path == "/api/state":
             body = json.dumps(_company.snapshot()).encode()
             self._send(200, body, "application/json")
-        elif path == "/api/contract":
+        elif path in ("/api/contract", "/api/dispo"):
             params = urllib.parse.parse_qs(query)
             try:
                 deal_id = int(params.get("deal_id", ["0"])[0])
             except ValueError:
                 deal_id = 0
-            packet = _company.contract_packet(deal_id)
-            if packet is None:
+            result = (_company.contract_packet(deal_id) if path == "/api/contract"
+                      else _company.dispo_submission(deal_id))
+            if result is None:
                 self._send(404, b'{"error":"deal not found"}', "application/json")
             else:
-                self._send(200, json.dumps(packet).encode(), "application/json")
+                self._send(200, json.dumps(result).encode(), "application/json")
         else:
             self._send(404, b'{"error":"not found"}', "application/json")
 
     _POST_ROUTES = ("/api/decide", "/api/action", "/api/control",
-                    "/api/tick", "/api/contact", "/api/legal")
+                    "/api/tick", "/api/contact", "/api/legal", "/api/arm",
+                    "/api/foreign")
 
     def do_POST(self) -> None:
         if self.path not in self._POST_ROUTES:
@@ -95,6 +97,12 @@ class _Handler(BaseHTTPRequestHandler):
                 result = _company.legal_review(
                     str(data.get("state", "TX")),
                     pre_foreclosure=bool(data.get("pre_foreclosure", False)))
+                result["ok"] = True
+            elif self.path == "/api/arm":
+                result["ok"] = True
+                result["armed"] = _company.arm(bool(data.get("on", False)))
+            elif self.path == "/api/foreign":
+                result = _company.foreign_payee_readiness()
                 result["ok"] = True
 
             self._send(200 if result.get("ok") else 400,

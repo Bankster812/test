@@ -53,6 +53,9 @@ class BizDevAgent(BaseAgent):
     code = "BIZDEV"
     name = "Riley (Business Development)"
     role = "Realtor / partner / cash-buyer outreach (B2B)"
+    team = "Disposition"
+    desc = ("Works a queue of real B2B contacts (agents, wholesalers, cash buyers) "
+            "and drafts tailored outreach. Never contacts homeowners.")
     color = "#80ed99"
     owns = ()  # driven by company.tick via run(), not a pipeline stage
 

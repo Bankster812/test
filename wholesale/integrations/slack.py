@@ -17,9 +17,8 @@ class SlackAdapter(Adapter):
     def post(self, channel: str, text: str) -> DispatchResult:
         payload = {"channel": channel, "text": text}
         summary = f"Slack #{channel}: {text[:90]}"
-        if self.armed:
-            self._live_post(payload)
-        return self._result("post", channel, summary, payload)
+        delivered = self._dispatch(self._live_post, payload)
+        return self._result("post", channel, summary, payload, delivered)
 
     def _live_post(self, payload: dict) -> None:  # pragma: no cover
         raise NotImplementedError("Live Slack transport not wired — arm deliberately.")

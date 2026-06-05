@@ -19,17 +19,25 @@ from .transaction import CoordinatorAgent
 from .compliance import ComplianceAgent
 from .legal import LegalAnalyst
 from .bizdev import BizDevAgent
+from .foreign_payee import ForeignPayeeAgent
+from .qa import QAAuditAgent
+from .orchestrator import Orchestrator
 
 __all__ = [
     "BaseAgent", "ScoutAgent", "AnalystAgent", "CloserAgent",
     "DispoAgent", "CoordinatorAgent", "ComplianceAgent", "LegalAnalyst",
-    "BizDevAgent", "build_roster",
+    "BizDevAgent", "ForeignPayeeAgent", "QAAuditAgent", "Orchestrator",
+    "build_roster",
 ]
 
 
 def build_roster(company) -> dict[str, BaseAgent]:
-    """Instantiate the full org and key it by agent code."""
+    """Instantiate the full org and key it by agent code.
+
+    Atlas (Orchestrator) is listed first — it is accountable for the rest.
+    """
     roster = [
+        Orchestrator(company),
         ScoutAgent(company),
         AnalystAgent(company),
         CloserAgent(company),
@@ -37,6 +45,8 @@ def build_roster(company) -> dict[str, BaseAgent]:
         CoordinatorAgent(company),
         ComplianceAgent(company),
         LegalAnalyst(company),
+        ForeignPayeeAgent(company),
         BizDevAgent(company),
+        QAAuditAgent(company),
     ]
     return {a.code: a for a in roster}
