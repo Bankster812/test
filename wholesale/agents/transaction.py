@@ -15,6 +15,9 @@ class CoordinatorAgent(BaseAgent):
     code = "COORD"
     name = "Priya (Transaction Coordinator)"
     role = "Title, escrow & closing"
+    team = "Transaction"
+    desc = ("Opens title/escrow on assigned deals and drives closing; books the "
+            "assignment fee on funding.")
     color = "#577590"
     owns = (Stage.ASSIGNED, Stage.CLOSING)
 

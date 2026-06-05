@@ -26,6 +26,9 @@ class ComplianceAgent(BaseAgent):
     code = "COMPLY"
     name = "Dana (Compliance & Risk)"
     role = "Legal review & CEO escalation gate"
+    team = "Compliance"
+    desc = ("Reviews each signed contract for state disclosure/risk, attaches a "
+            "legal memo, and escalates high-value/flagged deals to the CEO.")
     color = "#9b5de5"
     owns = (Stage.UNDER_CONTRACT,)
 

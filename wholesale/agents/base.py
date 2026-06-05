@@ -22,6 +22,8 @@ class BaseAgent:
     name: str = "Agent"
     role: str = "Generic"
     color: str = "#8aa"
+    team: str = "Operations"         # org grouping under the Chief of Staff
+    desc: str = "A specialist agent."  # one-line "what I do" for the UI
     owns: tuple = ()                 # Stage values this agent processes
 
     def __init__(self, company) -> None:
@@ -55,6 +57,21 @@ class BaseAgent:
                                 temperature=temperature)
         return out if out else fallback
 
+    # -- CEO direct message -------------------------------------------------
+    def receive_message(self, text: str) -> str:
+        """Handle a direct message from the CEO and return a reply."""
+        system = (
+            f"You are {self.name}, {self.role} at Keystone Property Partners. "
+            f"The CEO is speaking to you directly. "
+            f"Reply concisely in 2-3 sentences. "
+            f"Current status: {self.status}. Current task: {self.current_task}."
+        )
+        reply = self.reason(system, text, max_tokens=200,
+                            fallback=f"Understood. I'm currently {self.current_task}. "
+                                     f"Standing by for your instructions.")
+        self.say(f"[CEO] {text[:120]}  →  [Me] {reply[:200]}", level="info")
+        return reply
+
     # -- contract -----------------------------------------------------------
     def handle(self, deal) -> None:  # pragma: no cover - overridden
         raise NotImplementedError
@@ -64,6 +81,8 @@ class BaseAgent:
             "code": self.code,
             "name": self.name,
             "role": self.role,
+            "team": self.team,
+            "desc": self.desc,
             "color": self.color,
             "status": self.status,
             "task": self.current_task,

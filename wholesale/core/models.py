@@ -121,6 +121,7 @@ class Deal:
     history: list[str] = field(default_factory=list)
     flags: list[str] = field(default_factory=list)   # compliance / risk notes
     legal_memo: dict = field(default_factory=dict)   # LegalAnalyst triage output
+    qa: dict = field(default_factory=dict)           # QA/Audit result
     needs_ceo: bool = False
     ceo_decision: str | None = None  # "approved" / "rejected" / None
     compliance_done: bool = False
@@ -151,6 +152,7 @@ class Deal:
             "buyer": self.buyer.to_dict() if self.buyer else None,
             "flags": self.flags,
             "legal_memo": self.legal_memo,
+            "qa": self.qa,
             "needs_ceo": self.needs_ceo,
             "ceo_decision": self.ceo_decision,
             "history": self.history[-12:],

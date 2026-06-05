@@ -41,6 +41,7 @@ class Company:
 
         self.deals: list[Deal] = []
         self.contacts: list = []          # B2B outreach queue (Riley/BizDev)
+        self.oversight: dict = {}         # Chief-of-Staff accountability report
         self.tick_count = 0
         self.started = time.time()
 
@@ -74,10 +75,19 @@ class Company:
             self.tick_count += 1
             tick_start = time.time()
 
-            # 1. Source fresh leads on cadence.
-            if self.tick_count % self.cfg.NEW_LEADS_TICKS == 1:
-                for prop, seller in self.market.next_leads(self.cfg.LEADS_PER_BATCH):
-                    self.deals.append(Deal(prop=prop, seller=seller))
+            # 1. Source fresh leads.
+            # Demo mode: auto-generate synthetic leads every NEW_LEADS_TICKS ticks.
+            # Live mode (default): only add leads from real providers (CSV, ATTOM, etc.)
+            if getattr(self.cfg, "LEAD_SOURCE", "live") == "demo":
+                if self.tick_count % self.cfg.NEW_LEADS_TICKS == 1:
+                    for prop, seller in self.market.next_leads(self.cfg.LEADS_PER_BATCH):
+                        self.deals.append(Deal(prop=prop, seller=seller))
+            else:
+                from ..sourcing.providers import get_provider
+                provider = get_provider(self.cfg.HQ_MARKETS)
+                if provider.available():
+                    for prop, seller in provider.fetch_leads("", self.cfg.LEADS_PER_BATCH):
+                        self.deals.append(Deal(prop=prop, seller=seller))
 
             # 2. Advance pipeline (reverse order → one stage/deal/tick).
             for stage in reversed(PIPELINE_ORDER):
@@ -100,7 +110,11 @@ class Company:
             # 3. Business development: work the B2B outreach queue.
             self.agents["BIZDEV"].run()
 
-            # 4. Idle any agent that didn't act this tick.
+            # 4. Governance: QA/Audit recent deals, then Chief-of-Staff oversight.
+            self.agents["QA"].run()
+            self.oversight = self.agents["CHIEF"].oversee()
+
+            # 5. Idle any agent that didn't act this tick.
             for agent in self.agents.values():
                 if agent.last_active < tick_start:
                     agent.idle()
@@ -115,6 +129,50 @@ class Company:
         from ..outreach.dfw_targets import load_contacts
         self.contacts = load_contacts()
 
+    def import_leads_csv(self, csv_text: str) -> int:
+        """Parse CSV text and add leads to the pipeline. Returns count added."""
+        from ..sourcing.providers import CsvProvider
+        from .models import Deal
+        provider = CsvProvider.from_text(csv_text)
+        added = 0
+        with self._lock:
+            while provider.available():
+                batch = provider.fetch_leads("", 50)
+                if not batch:
+                    break
+                for prop, seller in batch:
+                    self.deals.append(Deal(prop=prop, seller=seller))
+                    added += 1
+        if added:
+            self.bus.publish(self.cfg.CEO_NAME,
+                             f"Imported {added} lead(s) from CSV.", level="info")
+        return added
+
+    def add_lead(self, address: str, city: str, state: str, zip_code: str,
+                 est_market_value: int, seller_name: str, asking_price: int,
+                 motivation: str = "distress", reachable_via: str = "mail") -> bool:
+        """Manually add a single lead from the dashboard form."""
+        from .models import Deal, Property, Seller
+        metro_map = {"TX": "TX-Dallas", "FL": "FL-Tampa", "GA": "GA-Atlanta",
+                     "OH": "OH-Columbus", "NC": "NC-Charlotte"}
+        metro = metro_map.get(state.upper(), f"{state.upper()}-Unknown")
+        prop = Property(
+            address=address, city=city, state=state.upper(), zip=zip_code,
+            metro=metro, beds=3, baths=2.0, sqft=1400, year_built=1980,
+            property_type="SFR", distress=motivation,
+            est_market_value=est_market_value,
+        )
+        seller = Seller(
+            name=seller_name, motivation=motivation,
+            asking_price=asking_price, reachable_via=reachable_via,
+            flexibility=0.35, walk_floor=int(est_market_value * 0.60),
+        )
+        with self._lock:
+            self.deals.append(Deal(prop=prop, seller=seller))
+        self.bus.publish(self.cfg.CEO_NAME,
+                         f"Manually added lead: {address}, {city} {state}.", level="info")
+        return True
+
     def add_contact(self, name: str, kind: str, market: str = "Dallas, TX",
                     area: str = "75215", email: str = "") -> None:
         from ..agents.bizdev import Contact
@@ -125,6 +183,24 @@ class Company:
                      pre_foreclosure: bool = False) -> dict:
         """On-demand legal triage from the LegalAnalyst sub-agent."""
         return self.agents["LEGAL"].analyze(state, deal_type, pre_foreclosure)
+
+    def foreign_payee_readiness(self) -> dict:
+        """Non-resident payout/tax readiness checklist (Mei)."""
+        return self.agents["FOREIGN"].readiness()
+
+    def arm(self, on: bool = True) -> bool:
+        """Flip integrations live/dry-run (live still needs a wired transport)."""
+        self.integrations.arm(on)
+        self.bus.publish(self.cfg.CEO_NAME,
+                         f"Integrations {'ARMED (live)' if on else 'set to dry-run'} by CEO.",
+                         level="escalate" if on else "info")
+        return on
+
+    def dispo_submission(self, deal_id: int) -> dict | None:
+        """Buyer-facing summary + target platforms for a deal."""
+        from ..disposition.submission import submission_packet
+        d = self.get_deal(deal_id)
+        return submission_packet(d, self) if d else None
 
     def do_action(self, action_id: str, decision: str | None = None) -> bool:
         """Execute one Action-Queue item (the human-gated last mile).
@@ -266,7 +342,9 @@ class Company:
                 "armed": self.integrations.crm.armed,
                 "llm": {
                     "available": self.agents["SCOUT"].llm.is_available(),
+                    "backend": self.agents["SCOUT"].llm.backend,
                     "model": self.cfg.LLM_MODEL,
+                    "describe": self.agents["SCOUT"].llm.describe(),
                     "calls": self.agents["SCOUT"].llm.calls,
                     "failures": self.agents["SCOUT"].llm.failures,
                 },
@@ -290,4 +368,6 @@ class Company:
                 "contacts": [c.to_dict() for c in self.contacts[-30:]],
                 "dispo_platforms": [p.to_dict() for p in _DISPO_PLATFORMS],
                 "policy": policy.summary(),
+                "oversight": self.oversight,
+                "lead_source": getattr(self.cfg, "LEAD_SOURCE", "live"),
             }

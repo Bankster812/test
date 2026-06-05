@@ -18,6 +18,9 @@ class CloserAgent(BaseAgent):
     code = "CLOSER"
     name = "Sofia (Acquisition Manager)"
     role = "Seller outreach & negotiation"
+    team = "Acquisitions"
+    desc = ("Drafts compliant seller first-touch, then negotiates to a price at or "
+            "below MAO and locks the assignable contract.")
     color = "#f3722c"
     owns = (Stage.OUTREACH, Stage.NEGOTIATION)
 

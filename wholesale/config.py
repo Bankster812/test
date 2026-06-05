@@ -30,10 +30,18 @@ MAX_REHAB_RATIO      = 0.45    # walk if repairs > 45% of ARV (too hairy)
 CEO_APPROVAL_THRESHOLD = float(os.environ.get("WS_CEO_APPROVAL_USD", "250000"))
 
 # ----------------------------------------------------------------------------
+# Lead sourcing mode
+# ----------------------------------------------------------------------------
+# "live"  — start empty; leads come from CSV import or county records only.
+# "demo"  — auto-generate synthetic leads every NEW_LEADS_TICKS ticks (for testing).
+LEAD_SOURCE    = os.environ.get("WS_LEAD_SOURCE", "live")
+LEADS_CSV_PATH = os.environ.get("WS_LEADS_CSV", "")          # path to a leads CSV file
+
+# ----------------------------------------------------------------------------
 # Simulation / operating cadence
 # ----------------------------------------------------------------------------
 TICK_SECONDS    = float(os.environ.get("WS_TICK_SECONDS", "2.0"))   # wall-clock per tick
-NEW_LEADS_TICKS = int(os.environ.get("WS_LEAD_INTERVAL", "3"))      # source leads every N ticks
+NEW_LEADS_TICKS = int(os.environ.get("WS_LEAD_INTERVAL", "3"))      # source leads every N ticks (demo)
 LEADS_PER_BATCH = int(os.environ.get("WS_LEADS_PER_BATCH", "2"))
 MAX_ACTIVITY_LOG = 400                                              # ring-buffer size
 

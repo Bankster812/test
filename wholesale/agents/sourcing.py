@@ -11,6 +11,9 @@ class ScoutAgent(BaseAgent):
     code = "SCOUT"
     name = "Ava (Acquisitions Scout)"
     role = "Sourcing & lead qualification"
+    team = "Acquisitions"
+    desc = ("Screens every new lead against the default-deny market policy, kills "
+            "blocked-state leads, and qualifies the rest into underwriting.")
     color = "#4cc9f0"
     owns = (Stage.SOURCED,)
 

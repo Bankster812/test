@@ -17,6 +17,9 @@ class DispoAgent(BaseAgent):
     code = "DISPO"
     name = "Theo (Disposition Manager)"
     role = "Cash-buyer matching & assignment"
+    team = "Disposition"
+    desc = ("Markets the contract to the cash-buyer book and matching dispo "
+            "platforms, and assigns to the best-fit buyer.")
     color = "#43aa8b"
     owns = (Stage.DISPOSITION,)
 
@@ -30,8 +33,19 @@ class DispoAgent(BaseAgent):
 
     def handle(self, deal) -> None:
         self._set("acting", f"Marketing {deal.prop.address} to buyers", deal.id)
+        first_time = deal.dispo_rounds == 0
         deal.dispo_rounds += 1
         rng = self.company.rng
+
+        # On first marketing, submit the buyer summary to disposition platforms
+        # (dry-run unless armed) so the deal is listed where buyers are.
+        if first_time:
+            from ..disposition.submission import buyer_summary
+            summary = buyer_summary(deal, self.company)
+            for plat, hint in (("OfferMarket", "free marketplace"),
+                               ("DispoBridge", "pay-on-close intake")):
+                self.company.integrations.dispo_submit(
+                    platform=plat, deal_id=deal.id, summary=summary, channel_hint=hint)
 
         candidates = [b for b in self.company.buyers if self._fit(deal, b)]
         # Weight by appetite; verified-cash buyers preferred.

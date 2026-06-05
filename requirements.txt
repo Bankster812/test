@@ -15,3 +15,12 @@ beautifulsoup4>=4.12.0
 # IB domain — YouTube transcript learning (optional)
 # yt-dlp>=2024.1.0
 # youtube-transcript-api>=0.6.2
+
+# Wholesale domain — Claude LLM client (optional, falls back to heuristics)
+# anthropic>=0.25.0
+
+# Wholesale domain — Camoufox stealth browser for Zillow / Realtor / Auction.com
+# sourcing. Install: pip install "camoufox[geoip]" && python -m camoufox fetch
+# Without it, Scout falls back to HUD / HomePath / CSV import only.
+# camoufox[geoip]>=0.4.11
+# PyYAML>=6.0           # camoufox needs CLoader from PyYAML 6+

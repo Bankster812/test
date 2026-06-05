@@ -45,22 +45,25 @@ class _Handler(BaseHTTPRequestHandler):
         elif path == "/api/state":
             body = json.dumps(_company.snapshot()).encode()
             self._send(200, body, "application/json")
-        elif path == "/api/contract":
+        elif path in ("/api/contract", "/api/dispo"):
             params = urllib.parse.parse_qs(query)
             try:
                 deal_id = int(params.get("deal_id", ["0"])[0])
             except ValueError:
                 deal_id = 0
-            packet = _company.contract_packet(deal_id)
-            if packet is None:
+            result = (_company.contract_packet(deal_id) if path == "/api/contract"
+                      else _company.dispo_submission(deal_id))
+            if result is None:
                 self._send(404, b'{"error":"deal not found"}', "application/json")
             else:
-                self._send(200, json.dumps(packet).encode(), "application/json")
+                self._send(200, json.dumps(result).encode(), "application/json")
         else:
             self._send(404, b'{"error":"not found"}', "application/json")
 
     _POST_ROUTES = ("/api/decide", "/api/action", "/api/control",
-                    "/api/tick", "/api/contact", "/api/legal")
+                    "/api/tick", "/api/contact", "/api/legal", "/api/arm",
+                    "/api/foreign", "/api/agent/message",
+                    "/api/leads/import", "/api/leads/add")
 
     def do_POST(self) -> None:
         if self.path not in self._POST_ROUTES:
@@ -96,6 +99,42 @@ class _Handler(BaseHTTPRequestHandler):
                     str(data.get("state", "TX")),
                     pre_foreclosure=bool(data.get("pre_foreclosure", False)))
                 result["ok"] = True
+            elif self.path == "/api/arm":
+                result["ok"] = True
+                result["armed"] = _company.arm(bool(data.get("on", False)))
+            elif self.path == "/api/foreign":
+                result = _company.foreign_payee_readiness()
+                result["ok"] = True
+            elif self.path == "/api/agent/message":
+                code = str(data.get("code", "")).upper()
+                message = str(data.get("message", "")).strip()
+                agent = _company.agents.get(code)
+                if agent and message:
+                    reply = agent.receive_message(message)
+                    result = {"ok": True, "reply": reply, "agent": code,
+                              "agent_name": agent.name}
+                else:
+                    result = {"ok": False, "error": "unknown agent or empty message"}
+            elif self.path == "/api/leads/import":
+                csv_text = str(data.get("csv", "")).strip()
+                if csv_text:
+                    count = _company.import_leads_csv(csv_text)
+                    result = {"ok": True, "imported": count}
+                else:
+                    result = {"ok": False, "error": "no csv data provided"}
+            elif self.path == "/api/leads/add":
+                ok = _company.add_lead(
+                    address=str(data.get("address", "")).strip(),
+                    city=str(data.get("city", "")).strip(),
+                    state=str(data.get("state", "TX")).strip(),
+                    zip_code=str(data.get("zip", "00000")).strip(),
+                    est_market_value=int(data.get("market_value", 0)),
+                    seller_name=str(data.get("seller_name", "Unknown")).strip(),
+                    asking_price=int(data.get("asking_price", 0)),
+                    motivation=str(data.get("motivation", "distress")).strip(),
+                    reachable_via=str(data.get("reachable_via", "mail")).strip(),
+                )
+                result = {"ok": ok}
 
             self._send(200 if result.get("ok") else 400,
                        json.dumps(result).encode(), "application/json")

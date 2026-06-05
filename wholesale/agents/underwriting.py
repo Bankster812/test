@@ -24,6 +24,9 @@ class AnalystAgent(BaseAgent):
     code = "ANALYST"
     name = "Marcus (Underwriting Analyst)"
     role = "ARV, repairs & Maximum Allowable Offer"
+    team = "Acquisitions"
+    desc = ("Computes ARV, repair estimate, and a 3-tier MAO, then routes the deal "
+            "to assignment, double-close, or do-not-pursue.")
     color = "#f9c74f"
     owns = (Stage.UNDERWRITING,)
 

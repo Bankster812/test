@@ -39,6 +39,9 @@ class LegalAnalyst(BaseAgent):
     code = "LEGAL"
     name = "Counsel-AI (Legal Research)"
     role = "Legal-risk triage — informational, not legal advice"
+    team = "Compliance"
+    desc = ("Produces per-state legal triage (licensing, disclosures, "
+            "pre-foreclosure rules, TCPA) and attorney questions. Not legal advice.")
     color = "#bdb2ff"
     owns = ()  # not a pipeline-stage owner; invoked on demand
 
