@@ -24,12 +24,22 @@ All das würde dein Ziel (echte Reichweite, Monetarisierung) sabotieren, nicht e
                 (was macht den Hook stark? Aufbau? CTA?)  → content_patterns.py
 2. BRIEF     →  Aus dem Prinzip + DEINEM neuen Thema einen
                 originalen Skript-/Post-Brief generieren     → brief_generator.py
-3. PRODUKTION→  Du (oder ein Tool) erstellst das eigene Video/Bild
-                (eigene Aufnahmen, eigene Motive)
-4. POSTEN    →  Über die offizielle Graph API veröffentlichen → instagram_publisher.py
-5. MESSEN    →  Insights ziehen, Prinzipien nach Erfolg gewichten → insights.py
-6. WIEDERHOLEN → pipeline.py orchestriert die Schleife
+3. KI-VIDEO  →  Aus dem Brief Szenen-Prompts + Voiceover für
+                kostenlose KI-Video-Tools erzeugen           → ai_video.py
+4. PRODUKTION→  Szenen in einem Gratis-Tool generieren, in CapCut/Canva
+                schneiden (neues, eigenes Video im Format)
+5. POSTEN    →  Über die offizielle Graph API veröffentlichen → instagram_publisher.py
+6. MESSEN    →  Insights ziehen, Prinzipien nach Erfolg gewichten → insights.py
+7. WIEDERHOLEN → pipeline.py orchestriert die Schleife
 ```
+
+### Kostenlose KI-Video-Tools
+
+`ai_video.py` erzeugt aus einem Brief fertige Text-to-Video-Prompts, ein
+Voiceover-Skript und On-Screen-Text. Diese kopierst du in ein kostenloses Tool
+(z.B. Runway, Pika, Kling, Luma, Canva Magic Media) und schneidest das Ergebnis
+in CapCut/Canva zusammen. So entsteht ein **neues, eigenes** Video im erfolgreichen
+Format — kein reproduziertes Fremdmaterial.
 
 ## Setup
 
@@ -69,6 +79,7 @@ python -m content_automation.pipeline --publish-reel \
 |---------------------------|-------------------------------------------------------------|
 | `content_patterns.py`     | Erfolgsprinzipien strukturiert erfassen & bewerten          |
 | `brief_generator.py`      | Aus Prinzip + neuem Thema einen originalen Brief erzeugen   |
+| `ai_video.py`             | Aus Brief KI-Video-Prompts + Voiceover für Gratis-Tools     |
 | `instagram_publisher.py`  | Eigene Inhalte über die offizielle Graph API veröffentlichen|
 | `insights.py`             | Performance-Daten ziehen und Prinzipien gewichten           |
 | `pipeline.py`             | Den gesamten Loop orchestrieren + CLI                       |

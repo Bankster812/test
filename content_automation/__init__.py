@@ -9,6 +9,7 @@ Es kopiert keinen fremden Content. Siehe README.md.
 
 from .content_patterns import ContentPattern, PatternLibrary, Hook, CallToAction
 from .brief_generator import ContentBrief, generate_brief
+from .ai_video import AIVideoPlan, VideoScene, plan_from_brief, FREE_AI_VIDEO_TOOLS
 
 __all__ = [
     "ContentPattern",
@@ -17,4 +18,8 @@ __all__ = [
     "CallToAction",
     "ContentBrief",
     "generate_brief",
+    "AIVideoPlan",
+    "VideoScene",
+    "plan_from_brief",
+    "FREE_AI_VIDEO_TOOLS",
 ]

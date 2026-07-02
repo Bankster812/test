@@ -12,6 +12,7 @@ import sys
 
 from .content_patterns import PatternLibrary, starter_library
 from .brief_generator import generate_brief
+from .ai_video import plan_from_brief
 
 
 def _demo(subject: str, angle: str) -> int:
@@ -27,8 +28,13 @@ def _demo(subject: str, angle: str) -> int:
     print("=" * 60)
     print(brief.to_text())
     print("=" * 60)
-    print("\nNächster Schritt: Eigenes Video nach diesem Brief produzieren,")
-    print("dann mit --publish-reel veröffentlichen.")
+
+    plan = plan_from_brief(brief)
+    print("\n" + "=" * 60)
+    print(plan.to_text())
+    print("=" * 60)
+    print("\nNächster Schritt: Szenen in einem kostenlosen KI-Video-Tool generieren,")
+    print("zusammenschneiden und mit --publish-reel veröffentlichen.")
     return 0
 
 
