@@ -81,6 +81,13 @@ Keys lassen sich jederzeit in `~/MoneyPrinterTurbo/config.toml` ändern.
 | Schrift | `BeVietnamPro-Bold.ttf`, 72 px, weiß, schwarze Kontur |
 | Materialquelle | Pexels |
 | Musik | zufälliger mitgelieferter Track, Lautstärke 0.18 |
+| Gemini-Modell | `gemini-3.6-flash` (siehe unten) |
+
+Bei `gemini` wird das Modell bewusst gepinnt. Der Registry-Default von
+MoneyPrinterTurbo ist `gemini-3.1-pro-preview`, und Pro-Modelle haben im
+Gratis-Kontingent kein Budget: der erste Lauf scheitert dann mit einem
+`429 – quota exceeded`, das wie ein Key-Problem aussieht, aber keines ist.
+`gemini-3.6-flash` wird vom Free Tier bedient.
 
 Weitere englische Stimmen: `en-US-AndrewMultilingualNeural-Male`,
 `en-US-JennyNeural-Female`, `en-US-GuyNeural-Male`, `en-GB-SoniaNeural-Female`.

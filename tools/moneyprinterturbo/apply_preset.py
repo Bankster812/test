@@ -37,6 +37,13 @@ UI_PRESET = {
 # geschrieben wären sie syntaktisch gültig und wirkungslos.
 APP_SECTION = "app"
 
+# Die Registry-Defaults zeigen teils auf Pro-Modelle, die im Gratis-Kontingent
+# kein Budget haben und mit 429 antworten statt mit einer klaren Fehlermeldung.
+# Für diese Anbieter pinnen wir ein Modell, das der Free Tier wirklich bedient.
+FREE_TIER_MODELS = {
+    "gemini": "gemini-3.6-flash",
+}
+
 APP_PRESET = {
     "subtitle_provider": '"edge"',
     "video_source": '"pexels"',
@@ -107,6 +114,10 @@ def main() -> int:
         if llm_key:
             lines = set_key(lines, f"{provider}_api_key", f'"{llm_key}"', APP_SECTION)
             applied.append("LLM-Key gesetzt")
+        model = FREE_TIER_MODELS.get(provider)
+        if model:
+            lines = set_key(lines, f"{provider}_model_name", f'"{model}"', APP_SECTION)
+            applied.append(f"Modell auf {model} gepinnt (Gratis-Kontingent)")
 
     cfg_path.write_text("".join(lines), encoding="utf-8")
 
