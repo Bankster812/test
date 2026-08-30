@@ -32,7 +32,12 @@ UI_PRESET = {
     "bgm_volume": "0.18",
 }
 
-ROOT_PRESET = {
+# Achtung: In der Vorlage stehen diese Schlüssel unter [app], nicht auf
+# Root-Ebene – die App liest sie als _cfg.get("app", {}). Auf Root-Ebene
+# geschrieben wären sie syntaktisch gültig und wirkungslos.
+APP_SECTION = "app"
+
+APP_PRESET = {
     "subtitle_provider": '"edge"',
     "video_source": '"pexels"',
 }
@@ -82,8 +87,8 @@ def main() -> int:
     cfg_path = Path(os.environ["MPT_CFG"])
     lines = cfg_path.read_text(encoding="utf-8").splitlines(keepends=True)
 
-    for key, value in ROOT_PRESET.items():
-        lines = set_key(lines, key, value, None)
+    for key, value in APP_PRESET.items():
+        lines = set_key(lines, key, value, APP_SECTION)
     for key, value in UI_PRESET.items():
         lines = set_key(lines, key, value, "ui")
 
@@ -91,16 +96,16 @@ def main() -> int:
 
     pexels = os.environ.get("MPT_PEXELS_KEY", "").strip()
     if pexels:
-        lines = set_key(lines, "pexels_api_keys", f'["{pexels}"]', None)
+        lines = set_key(lines, "pexels_api_keys", f'["{pexels}"]', APP_SECTION)
         applied.append("Pexels-Key gesetzt")
 
     provider = os.environ.get("MPT_LLM_PROVIDER", "").strip()
     llm_key = os.environ.get("MPT_LLM_KEY", "").strip()
     if provider:
-        lines = set_key(lines, "llm_provider", f'"{provider}"', None)
+        lines = set_key(lines, "llm_provider", f'"{provider}"', APP_SECTION)
         applied.append(f"LLM-Anbieter: {provider}")
         if llm_key:
-            lines = set_key(lines, f"{provider}_api_key", f'"{llm_key}"', None)
+            lines = set_key(lines, f"{provider}_api_key", f'"{llm_key}"', APP_SECTION)
             applied.append("LLM-Key gesetzt")
 
     cfg_path.write_text("".join(lines), encoding="utf-8")
