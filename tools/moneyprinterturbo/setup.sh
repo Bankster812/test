@@ -117,10 +117,9 @@ main() {
   install_deps
   configure
 
+  # printf statt cat<<HEREDOC: ein Heredoc gibt \033 wörtlich aus.
+  printf '\n\033[1;32mFertig.\033[0m MoneyPrinterTurbo liegt in: %s\n\n' "$MPT_DIR"
   cat <<MSG
-
-\033[1;32mFertig.\033[0m MoneyPrinterTurbo liegt in: $MPT_DIR
-
   WebUI starten:      bash $KIT_DIR/start.sh
   Video per Kommando: bash $KIT_DIR/neues-video.sh "Dein Thema"
 
