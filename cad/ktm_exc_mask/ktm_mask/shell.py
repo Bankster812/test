@@ -22,7 +22,7 @@ def _wire(pts, z: float, spline: bool):
     return wp.wire().val()
 
 
-def _level_zs(p, extra_per_gap: int = 3):
+def _level_zs(p, extra_per_gap: int = 2):
     """Tiefen fuer den Loft — Zwischenebenen glaetten die Woelbung."""
     zs = []
     lv = p.level_objs

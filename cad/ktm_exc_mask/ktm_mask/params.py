@@ -128,14 +128,61 @@ class MaskParams:
     ece_min_inner_spacing: float = 240.0
 
     # ------------------------------- Rueckseite (Uebernahme der Spendermaske)
-    # Oberer Befestigungsbock in der Mitte, wie auf den Bildern: erhabener
-    # Sockel an der Innenseite mit Durchgangsloch.
+    # Oberer Befestigungsbock: erhabener Sattel mit Mulde und Durchgangsloch,
+    # flankiert von zwei Stuetzrippen — wie auf den Bildern.
     top_bracket: bool = True
     top_bracket_y: float = 96.0       # Hoehe ueber der Maskenmitte
-    top_bracket_w: float = 34.0
-    top_bracket_h: float = 22.0
-    top_bracket_t: float = 10.0       # Aufbau nach innen
+    top_bracket_w: float = 46.0
+    top_bracket_h: float = 26.0
+    top_bracket_t: float = 12.0       # Aufbau nach innen
     top_bracket_hole_d: float = 8.5
+    top_bracket_recess_w: float = 26.0   # Mulde im Sattel
+    top_bracket_recess_h: float = 13.0
+    top_bracket_recess_t: float = 5.0
+    top_bracket_wing: float = 16.0    # Laenge der seitlichen Stuetzrippen
+
+    # Halter des Scheinwerfers: laengliche Streifen, radial zur Ausschnitt-
+    # mitte ausgerichtet, nicht runde Doeme.
+    light_boss: bool = True
+    light_boss_dx: float = 44.0       # seitlicher Abstand zur Ausschnittmitte
+    light_boss_dy: float = 52.0       # Hoehenabstand zur Ausschnittmitte
+    light_boss_len: float = 34.0      # Laenge des Streifens
+    light_boss_w: float = 13.0        # Breite des Streifens
+    light_boss_t: float = 8.0         # Aufbau nach innen
+    light_boss_hole_d: float = 5.2
+
+    # Verrippung der Innenseite. Carbon- und Kunststoffversion haben
+    # dieselbe Rueckseite; auf den Carbonbildern ist sie nur schlecht zu
+    # sehen, weil das Material dunkel ist. Jede Zeile ist eine Rippe
+    # [x1, y1, x2, y2] in Millimetern ab Maskenmitte; sie steht als duenne
+    # Wand auf der Innenflaeche und folgt deren Woelbung.
+    ribs: bool = True
+    rib_t: float = 2.2                # Dicke einer Rippe
+    rib_h: float = 7.0                # Hoehe ueber der Innenflaeche
+    rib_segments: list = field(default_factory=lambda: [
+        # senkrechte Rippen beiderseits des Ausschnitts
+        [42.0, 44.0, 42.0, -92.0], [-42.0, 44.0, -42.0, -92.0],
+        # Querrippe ueber dem Ausschnitt
+        [-42.0, 46.0, 42.0, 46.0],
+        # Radialrippen nach aussen
+        [42.0, 40.0, 86.0, 76.0], [-42.0, 40.0, -86.0, 76.0],
+        [44.0, 2.0, 100.0, 8.0], [-44.0, 2.0, -100.0, 8.0],
+        [42.0, -58.0, 84.0, -54.0], [-42.0, -58.0, -84.0, -54.0],
+        # in den Auslauf unten
+        [22.0, -98.0, 44.0, -104.0], [-22.0, -98.0, -44.0, -104.0],
+        # Kamm aus kurzen Finnen im oberen Bereich
+        [48.0, 58.0, 76.0, 58.0], [-48.0, 58.0, -76.0, 58.0],
+        [48.0, 70.0, 74.0, 70.0], [-48.0, 70.0, -74.0, 70.0],
+        [48.0, 82.0, 68.0, 82.0], [-48.0, 82.0, -68.0, 82.0],
+        [48.0, 94.0, 60.0, 94.0], [-48.0, 94.0, -60.0, 94.0],
+    ])
+
+    # Zapfen an der Innenseite (Aufnahmen fuer Clips, Kabelfuehrung)
+    post_positions: list = field(default_factory=lambda: [[26.0, 10.0],
+                                                          [-26.0, 10.0]])
+    post_d: float = 10.0
+    post_len: float = 15.0
+    post_bore: float = 4.2
 
     rear_mount_type: str = "tabs"     # "tabs" | "none"
     tab_positions: list = field(default_factory=lambda: [[0.0, -104.0]])
@@ -233,6 +280,14 @@ class MaskParams:
         if self.stalk and self.pocket_floor_t < 1.5:
             w.append(f"pocket_floor_t {self.pocket_floor_t} mm — der "
                      "Taschenboden traegt den Blinker, >= 2 mm einplanen")
+        if self.ribs and self.rib_t >= self.rib_h:
+            w.append("rib_t ist nicht kleiner als rib_h — das sind keine "
+                     "Rippen mehr, sondern Kloetze")
+        if self.ribs and any(len(seg) != 4 for seg in self.rib_segments):
+            w.append("jede Zeile in rib_segments braucht genau vier Werte "
+                     "[x1, y1, x2, y2]")
+        if self.post_positions and self.post_bore >= self.post_d - 2.0:
+            w.append("post_bore laesst zu wenig Wand am Zapfen stehen")
         if self.rear_mount_type not in ("tabs", "none"):
             w.append(f"rear_mount_type '{self.rear_mount_type}' unbekannt")
         return w

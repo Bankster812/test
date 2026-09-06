@@ -31,13 +31,21 @@ def adders(p, outer=None) -> list:
         outer = outer_solid(p)
     out = []
 
-    pad, _ = rearmount.top_bracket(p, outer)
-    if pad is not None:
-        out.append(Feature("oberer_befestigungsbock", pad, clip=True))
+    rib_net = rearmount.ribs(p)
+    if rib_net is not None:
+        out.append(Feature("verrippung", rib_net))
+
+    saddle, _ = rearmount.top_bracket(p, outer)
+    if saddle is not None:
+        out.append(Feature("oberer_befestigungsbock", saddle, clip=True))
 
     pads, _ = rearmount.light_bosses(p, outer)
     if pads is not None:
-        out.append(Feature("scheinwerferdome", pads, clip=True))
+        out.append(Feature("halterstreifen_scheinwerfer", pads, clip=True))
+
+    stand, _ = rearmount.posts(p)
+    if stand is not None:
+        out.append(Feature("zapfen", stand))
 
     pads, _ = rearmount.tabs(p, outer)
     if pads is not None:
@@ -59,13 +67,17 @@ def cutters(p, outer=None) -> list:
     for name, cutter in slots.cutters(p):
         out.append(Feature(name, cutter))
 
-    _, hole = rearmount.top_bracket(p, outer)
-    if hole is not None:
-        out.append(Feature("bohrung_befestigungsbock", hole))
+    _, cuts = rearmount.top_bracket(p, outer)
+    if cuts is not None:
+        out.append(Feature("mulde_und_bohrung_bock", cuts))
 
     _, holes = rearmount.light_bosses(p, outer)
     if holes is not None:
-        out.append(Feature("bohrungen_scheinwerferdome", holes))
+        out.append(Feature("bohrungen_halterstreifen", holes))
+
+    _, bores = rearmount.posts(p)
+    if bores is not None:
+        out.append(Feature("bohrungen_zapfen", bores))
 
     _, holes = rearmount.tabs(p, outer)
     if holes is not None:
