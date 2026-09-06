@@ -1,0 +1,4 @@
+# In Sekunden neu erzeugbar (python3 build.py --split --gauges), daher nicht
+# im Repo. Die Haupt-STEP und alle druckbaren STLs liegen dagegen bei.
+out/*_haelfte_*.step
+out/probe_*.step
