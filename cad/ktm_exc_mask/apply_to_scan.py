@@ -86,7 +86,7 @@ def align(mesh: trimesh.Trimesh, mode: str, scale, rotate, translate):
         centre = (lo + hi) / 2.0
         # X/Y mittig, Vorderkante der Maske auf Z = 0
         mesh.apply_translation((-centre[0], -centre[1], -hi[2]))
-        print(f"[i] ausgerichtet: X/Y mittig, Vorderkante auf Z = 0")
+        print("[i] ausgerichtet: X/Y mittig, Vorderkante auf Z = 0")
     if translate:
         mesh.apply_translation(translate)
     lo, hi = mesh.bounds

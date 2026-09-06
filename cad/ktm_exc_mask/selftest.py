@@ -10,7 +10,6 @@ Taschenboden traegt und ob die Bohrungen durchgehen.
 
 from __future__ import annotations
 
-import math
 import sys
 import tempfile
 from pathlib import Path

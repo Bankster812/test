@@ -11,7 +11,6 @@ import math
 
 import cadquery as cq
 
-from .geometry import interp_section
 from . import blinker as blinker_mod
 from . import rearmount
 
