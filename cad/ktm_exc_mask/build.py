@@ -20,6 +20,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import cadquery as cq  # noqa: E402
+import trimesh  # noqa: E402
 
 from ktm_mask import gauges  # noqa: E402
 from ktm_mask.assembly import build_mask, report, split_halves  # noqa: E402
@@ -57,6 +58,27 @@ def apply_overrides(p: MaskParams, assignments) -> MaskParams:
     return p
 
 
+def tidy_stl(path: Path) -> None:
+    """Nullflaechen-Fetzen aus dem Netz entfernen.
+
+    An Stellen, wo eine Verschneidung tangential auslaeuft, laesst der
+    Kernel entartete Flaechen stehen. Sie haben kein Volumen und keine
+    offenen Kanten, machen das Netz aber ungeschlossen — und damit fuer den
+    Slicer unbrauchbar. `clean()` bekommt sie nicht weg, hier fallen sie
+    beim Zerlegen in Komponenten heraus.
+    """
+    mesh = trimesh.load(path, force="mesh")
+    parts = [q for q in mesh.split(only_watertight=False) if abs(q.volume) > 1.0]
+    if len(parts) == len(mesh.split(only_watertight=False)):
+        return
+    tidy = trimesh.util.concatenate(parts) if len(parts) > 1 else parts[0]
+    tidy.merge_vertices()
+    tidy.remove_unreferenced_vertices()
+    tidy.export(path)
+    print(f"[i] {path.name}: {len(mesh.split(only_watertight=False)) - len(parts)} "
+          f"Nullflaechen-Fetzen entfernt, geschlossen={tidy.is_watertight}")
+
+
 def export(obj, out_dir: Path, stem: str, formats, p: MaskParams) -> list:
     written = []
     for fmt in formats:
@@ -77,6 +99,7 @@ def export(obj, out_dir: Path, stem: str, formats, p: MaskParams) -> list:
             cq.exporters.export(obj, str(path), exportType="STL",
                                 tolerance=p.stl_tolerance,
                                 angularTolerance=p.stl_angular_tolerance)
+            tidy_stl(path)
         else:
             cq.exporters.export(obj, str(path), exportType=kind)
         written.append(path)
