@@ -13,6 +13,29 @@ from .shell import build_shell, outer_solid
 from . import blinker, features
 
 BIG = 1000.0
+MIN_FRAGMENT_VOL = 25.0   # mm^3 — kleinere Koerper sind Schnittabfall
+
+
+def drop_fragments(body: cq.Workplane, min_volume: float = MIN_FRAGMENT_VOL):
+    """Loesgeloeste Kruemel entfernen und den Rest zusammenfassen.
+
+    Wo eine Rippe genau an der Kappebene ausläuft oder eine Verschneidung
+    tangential endet, bleiben Splitter von wenigen Kubikmillimetern uebrig.
+    Im Slicer sind das freischwebende Inseln.
+    """
+    solids = body.val().Solids()
+    if len(solids) <= 1:
+        return body
+    keep = [s for s in solids if s.Volume() >= min_volume]
+    dropped = len(solids) - len(keep)
+    if dropped:
+        print(f"[i] {dropped} Splitter unter {min_volume:.0f} mm3 entfernt")
+    if not keep:
+        return body
+    result = cq.Workplane(obj=keep[0])
+    for extra in keep[1:]:
+        result = result.union(cq.Workplane(obj=extra))
+    return result
 
 
 def build_mask(p) -> cq.Workplane:
@@ -23,7 +46,12 @@ def build_mask(p) -> cq.Workplane:
         body = body.union(feat.solid)
     for feat in features.cutters(p, outer=outer):
         body = body.cut(feat.solid)
-    return body
+    body = drop_fragments(body)
+    # clean() raeumt die entarteten Flaechen weg, die boolesche Operationen
+    # an tangential auslaufenden Stellen hinterlassen — ohne das kommt aus
+    # der Tesselierung ein Netz mit Nullflaechen-Dreiecken heraus, das kein
+    # Slicer als geschlossen akzeptiert.
+    return body.clean()
 
 
 def volume_mm3(obj, tolerance: float = 1e-5) -> float:
