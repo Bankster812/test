@@ -1,0 +1,22 @@
+{
+  "abmessungen_mm": {
+    "x": 240.9,
+    "y": 228.1,
+    "z": 115.0
+  },
+  "volumen_cm3": 425.8,
+  "materialbedarf_g": 456.0,
+  "koerper": 1,
+  "wandstaerke_mm": 3.0,
+  "rueckseite": "plate",
+  "passt_aufs_bett": false,
+  "ece_blinker": {
+    "flanke_ab_mitte_mm": 115.4,
+    "lichtmitte_ab_mitte_mm": 166.4,
+    "innenkanten_abstand_mm": 300.8,
+    "richtwert_mm": 240.0,
+    "erfuellt": true,
+    "fehlende_schaftlaenge_je_seite_mm": 0.0
+  },
+  "warnungen": []
+}

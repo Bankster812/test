@@ -86,6 +86,15 @@ The IB layer mirrors this with `FinancialSafetyKernel` (`domains/investment_bank
 ### Continuous learning daemon
 `start_continuous_learning()` spawns a background thread that periodically pulls from `web_learner` / `youtube_learner` and feeds chunks into `_ingest_chunks`, which runs short (~20 step) STDP bursts with `reward=0.6`. Always `stop_continuous_learning()` before exit. Daemon access is guarded by `self._lock`.
 
+## `cad/` — eigenständiger Bereich
+
+`cad/ktm_exc_mask/` ist ein parametrisches CAD-Modell (CadQuery/OCCT) einer
+modifizierten KTM-EXC-Scheinwerfermaske und hat mit dem neuromorphen Teil
+nichts zu tun — eigene `requirements.txt`, eigener Einstiegspunkt
+(`python3 build.py`), eigene Selbstprüfung (`python3 selftest.py`). Details in
+`cad/ktm_exc_mask/README.md`. Beim Ändern der Geometrie gilt: `selftest.py`
+misst das Ergebnis nach und muss grün bleiben.
+
 ## Conventions specific to this codebase
 
 - Region codes are fixed three-letter labels: `V1, A1, S1, IT, PFC, M1, CB, HPC, AMY, BG, BS`. They are used as dict keys in `Brain.regions`, `cfg.CONNECTIVITY`, and pool names. Don't rename.

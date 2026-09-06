@@ -1,0 +1,7 @@
+# Nur fuer das CAD-Modell in diesem Verzeichnis — bewusst getrennt von der
+# requirements.txt im Repo-Wurzelverzeichnis, weil cadquery den kompletten
+# OCCT-Kernel mitbringt und mit dem neuromorphen Teil nichts zu tun hat.
+cadquery>=2.8.0        # B-Rep-Kernel, STEP/STL/DXF/SVG-Export
+numpy>=1.26.0
+trimesh>=4.0.0         # Netzpruefung und Uebertragung auf einen Scan
+manifold3d>=2.5.0      # boolesche Operationen auf Netzen (fuer apply_to_scan.py)
