@@ -23,7 +23,7 @@ import cadquery as cq  # noqa: E402
 
 from ktm_mask import gauges  # noqa: E402
 from ktm_mask.assembly import build_mask, report, split_halves  # noqa: E402
-from ktm_mask.geometry import superellipse_points  # noqa: E402
+from ktm_mask.geometry import level_points  # noqa: E402
 from ktm_mask.params import MaskParams  # noqa: E402
 
 FORMATS = {"step": "STEP", "stl": "STL", "svg": "SVG", "3mf": "3MF",
@@ -84,17 +84,18 @@ def export(obj, out_dir: Path, stem: str, formats, p: MaskParams) -> list:
 
 
 def export_outlines(p: MaskParams, out_dir: Path) -> list:
-    """Querschnittskonturen als DXF, massstabsgetreu in Millimetern.
+    """Konturen der Woelbungsebenen als DXF, massstabsgetreu in Millimetern.
 
-    Zum Ausdrucken bei 100 % und Anhalten an die echte Maske: so siehst du
-    ohne Messschieber, ob Breite, Hoehe und der Einzug nach unten stimmen.
+    Bei 100 % ausdrucken und an die echte Maske halten: so siehst du ohne
+    Messschieber, ob Breite, Hoehe und der Verlauf der Kontur stimmen.
     """
     written = []
-    for sec in p.section_objs:
-        pts = superellipse_points(sec, p.section_points)
+    for lvl in p.level_objs:
+        if lvl.scale < 0.2:
+            continue                      # der Scheitel taugt nicht als Schablone
+        pts = level_points(p.outline_ccw, p.width, p.height, p.level_objs, lvl.z)
         wire = cq.Workplane("XY").spline(pts, periodic=True)
-        name = f"kontur_z{sec.z:+.0f}mm.dxf".replace("+", "p").replace("-", "m")
-        path = out_dir / name
+        path = out_dir / f"kontur_z{lvl.z:.0f}mm.dxf"
         cq.exporters.exportDXF(wire, str(path))
         written.append(path)
     return written
@@ -110,10 +111,13 @@ def main(argv=None) -> int:
                     help="Kommaliste aus " + ", ".join(FORMATS))
     ap.add_argument("--set", action="append", metavar="KEY=WERT",
                     help="einzelnen Parameter ueberschreiben, mehrfach moeglich")
-    ap.add_argument("--rear", choices=("plate", "tabs", "strap", "none"),
+    ap.add_argument("--rear", choices=("tabs", "none"),
                     help="Variante der Rueckseite")
-    ap.add_argument("--no-blinker", action="store_true",
-                    help="Blinkeraufnahme weglassen")
+    ap.add_argument("--no-slots", action="store_true",
+                    help="Blinkerhalter-Aussparungen weglassen")
+    ap.add_argument("--stalk", action="store_true",
+                    help="zusaetzlich die Schaftaufnahme fuer einen "
+                         "Schraubblinker einarbeiten")
     ap.add_argument("--split", action="store_true",
                     help="in zwei Haelften teilen (kleines Druckbett)")
     ap.add_argument("--gauges", action="store_true",
@@ -136,8 +140,10 @@ def main(argv=None) -> int:
     p = apply_overrides(p, args.set)
     if args.rear:
         p.rear_mount_type = args.rear
-    if args.no_blinker:
-        p.blinker = False
+    if args.no_slots:
+        p.slots = False
+    if args.stalk:
+        p.stalk = True
     if args.split:
         p.split = True
 
@@ -182,6 +188,7 @@ def main(argv=None) -> int:
           f"bei Dichte {p.density})")
     print(f"  Koerper       {rep['koerper']}")
     print(f"  Rueckseite    {rep['rueckseite']}")
+    print(f"  Aussparungen  {rep['aussparungen_je_seite']} je Seite")
     if rep["ece_blinker"]:
         e = rep["ece_blinker"]
         mark = "ok" if e["erfuellt"] else "ZU ENG"

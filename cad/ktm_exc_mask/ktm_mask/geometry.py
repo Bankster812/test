@@ -1,15 +1,18 @@
-"""Querschnitts-Geometrie der Maske — reine Mathematik, kein CAD-Kernel.
+"""Kontur- und Flaechengeometrie der Maske — reine Mathematik, kein CAD-Kernel.
 
-Koordinatensystem (durchgaengig im ganzen Paket, Einheit Millimeter):
+Koordinatensystem (durchgaengig, Einheit Millimeter):
 
     X   quer zur Fahrtrichtung, + = rechte Fahrzeugseite
     Y   hoch,                   + = oben
-    Z   laengs,                 0 = vordere Maskenebene, negativ = nach hinten
+    Z   laengs,                 0 = hintere Kante (Rand), + = nach vorn
 
-Die Maske wird als Loft durch mehrere geschlossene Querschnitte beschrieben.
-Jeder Querschnitt ist eine Supserellipse (Exponent `n`), zusaetzlich unten
-eingezogen (`narrow`), damit die typische Enduro-Schildform entsteht:
-oben breit, nach unten zulaufend.
+Aufbau der Maske: eine geschlossene Umrisskontur (`outline`, normiert auf
+eine Einheitsbox) wird auf mehreren Tiefen `z` unterschiedlich stark
+verkleinert und daraus ein Loft gebildet. So entsteht das gewoelbte Schild:
+aussen am Rand die volle Kontur, nach vorn hin zunehmend kleiner.
+
+Die Wandstaerke entsteht ueber echte Parallelkurven (`offset_points`), nicht
+ueber blosses Skalieren — nur so bleibt sie auch in den Ecken konstant.
 """
 
 from __future__ import annotations
@@ -19,97 +22,58 @@ from dataclasses import dataclass
 
 
 @dataclass
-class Section:
-    """Ein Querschnitt der Maske auf Hoehe z."""
+class Level:
+    """Eine Ebene des Lofts: verkleinerte Kontur auf Tiefe z."""
 
-    z: float          # Tiefe (0 = Maskenvorderkante, negativ nach hinten)
-    width: float      # Gesamtbreite
-    height: float     # Gesamthoehe
-    exponent: float   # Superellipsen-Exponent: 2 = Ellipse, 4+ = kastiger
-    y_offset: float   # vertikale Verschiebung der Querschnittsmitte
-    narrow: float     # Einzug unten, 0 = keiner, 0.4 = stark zulaufend
+    z: float          # Tiefe (0 = hintere Kante, positiv nach vorn)
+    scale: float      # Verkleinerung der Kontur, 1.0 = voller Umriss
+    y_offset: float   # Verschiebung nach oben, verlagert den Scheitel
 
     @classmethod
-    def from_list(cls, v) -> "Section":
+    def from_list(cls, v) -> "Level":
         return cls(*(float(x) for x in v))
 
     def as_list(self):
-        return [self.z, self.width, self.height, self.exponent,
-                self.y_offset, self.narrow]
+        return [self.z, self.scale, self.y_offset]
 
 
-def _narrow_factor(y_local: float, half_h: float, narrow: float) -> float:
-    """Breiten-Skalierung: unterhalb der Mitte laeuft der Querschnitt zu."""
-    if narrow <= 0.0 or y_local >= 0.0 or half_h <= 0.0:
-        return 1.0
-    t = min(1.0, abs(y_local) / half_h)
-    return max(0.05, 1.0 - narrow * t)
+def outline_points(outline, width: float, height: float,
+                   scale: float = 1.0, y_offset: float = 0.0):
+    """Normierte Kontur auf Millimeter bringen und skalieren.
 
-
-def superellipse_points(sec: Section, num_points: int = 72):
-    """Punkte auf dem Querschnitt, gegen den Uhrzeigersinn, geschlossen."""
-    half_w, half_h = sec.width / 2.0, sec.height / 2.0
-    inv = 2.0 / sec.exponent
-    pts = []
-    for i in range(num_points):
-        a = 2.0 * math.pi * i / num_points
-        ca, sa = math.cos(a), math.sin(a)
-        x = half_w * math.copysign(abs(ca) ** inv, ca)
-        y_local = half_h * math.copysign(abs(sa) ** inv, sa)
-        x *= _narrow_factor(y_local, half_h, sec.narrow)
-        pts.append((x, y_local + sec.y_offset))
-    return pts
-
-
-def interp_section(sections, z: float) -> Section:
-    """Querschnitt an beliebiger Tiefe z (linear interpoliert bzw. geklemmt).
-
-    `sections` muss nach z absteigend sortiert sein (0, -20, -45, ...).
+    `outline` ist eine Liste [x, y] im Bereich -0.5 … +0.5. Die Skalierung
+    wirkt um den Ursprung, `y_offset` verschiebt anschliessend.
     """
-    if not sections:
-        raise ValueError("keine Querschnitte definiert")
-    if z >= sections[0].z:
-        return sections[0]
-    if z <= sections[-1].z:
-        return sections[-1]
-    for a, b in zip(sections, sections[1:]):
-        if b.z <= z <= a.z:
-            span = a.z - b.z
-            t = 0.0 if span == 0 else (a.z - z) / span
-            return Section(
-                z=z,
-                width=a.width + t * (b.width - a.width),
-                height=a.height + t * (b.height - a.height),
-                exponent=a.exponent + t * (b.exponent - a.exponent),
-                y_offset=a.y_offset + t * (b.y_offset - a.y_offset),
-                narrow=a.narrow + t * (b.narrow - a.narrow),
-            )
-    return sections[-1]
+    return [(px * width * scale, py * height * scale + y_offset)
+            for px, py in outline]
 
 
-def surface_x(sections, y: float, z: float) -> float:
-    """Halbe Aussenbreite der Maske an der Stelle (y, z), also die
-    X-Koordinate der Aussenhaut auf der rechten Seite.
+def polygon_area(pts) -> float:
+    """Vorzeichenbehaftete Flaeche — positiv bei Umlauf gegen den Uhrzeigersinn."""
+    a = 0.0
+    n = len(pts)
+    for i in range(n):
+        x0, y0 = pts[i]
+        x1, y1 = pts[(i + 1) % n]
+        a += x0 * y1 - x1 * y0
+    return a / 2.0
 
-    Wird gebraucht, um die Blinker-Aussparung exakt auf die Flanke zu setzen.
+
+def ensure_ccw(pts):
+    """Kontur gegen den Uhrzeigersinn orientieren.
+
+    `offset_points` setzt diese Orientierung voraus, damit die berechnete
+    Normale nach aussen zeigt.
     """
-    sec = interp_section(sections, z)
-    half_w, half_h = sec.width / 2.0, sec.height / 2.0
-    y_local = y - sec.y_offset
-    if half_h <= 0.0:
-        return 0.0
-    ratio = min(1.0, abs(y_local) / half_h)
-    # implizite Superellipse: |x/a|^n + |y/b|^n = 1
-    x = half_w * (max(0.0, 1.0 - ratio ** sec.exponent)) ** (1.0 / sec.exponent)
-    return x * _narrow_factor(y_local, half_h, sec.narrow)
+    return list(pts) if polygon_area(pts) > 0 else list(reversed(pts))
 
 
 def offset_points(pts, distances):
     """Geschlossenen Polygonzug nach innen versetzen.
 
-    Jeder Punkt wandert entlang seiner eigenen Normalen — anders als beim
-    blossen Verkleinern von Breite und Hoehe bleibt die Wandstaerke damit
-    auch in den Ecken des Querschnitts konstant.
+    Jeder Punkt wandert entlang seiner eigenen Normalen. Anders als beim
+    blossen Verkleinern bleibt die Wandstaerke damit auch dort konstant, wo
+    die Kontur ihre Richtung stark aendert.
     """
     n = len(pts)
     out = []
@@ -122,31 +86,128 @@ def offset_points(pts, distances):
         if length < 1e-12:
             out.append((px, py))
             continue
-        # Umlauf gegen den Uhrzeigersinn -> (ty, -tx) zeigt nach aussen
-        nx, ny = ty / length, -tx / length
+        nx, ny = ty / length, -tx / length      # Umlauf CCW -> zeigt nach aussen
         d = distances[i] if hasattr(distances, "__len__") else distances
         out.append((px - nx * d, py - ny * d))
     return out
 
 
-def taper_factors(sections, z: float, num_points: int, delta: float = 0.5):
-    """Korrektur der Versatzweite wegen der Formschraege in Laengsrichtung.
+def interp_level(levels, z: float) -> Level:
+    """Ebene auf beliebiger Tiefe z (linear interpoliert bzw. geklemmt).
 
-    Die Flanke steht schraeg zur Querschnittsebene. Ein Versatz von `w` in
-    der Ebene ergibt daher nur `w * cos(theta)` senkrecht zur Haut. Der
-    Faktor 1/cos(theta) gleicht das aus.
+    `levels` muss nach z aufsteigend sortiert sein (0, 18, 34, …).
     """
-    lo = superellipse_points(interp_section(sections, z - delta), num_points)
-    hi = superellipse_points(interp_section(sections, z + delta), num_points)
-    factors = []
+    if not levels:
+        raise ValueError("keine Ebenen definiert")
+    if z <= levels[0].z:
+        return Level(z, levels[0].scale, levels[0].y_offset)
+    if z >= levels[-1].z:
+        return Level(z, levels[-1].scale, levels[-1].y_offset)
+    for a, b in zip(levels, levels[1:]):
+        if a.z <= z <= b.z:
+            span = b.z - a.z
+            t = 0.0 if span == 0 else (z - a.z) / span
+            return Level(z,
+                         a.scale + t * (b.scale - a.scale),
+                         a.y_offset + t * (b.y_offset - a.y_offset))
+    return levels[-1]
+
+
+def _slopes(outline, width, height, levels, z: float, delta: float = 0.5):
+    """Neigung der Haut je Konturpunkt: Weg in der Ebene pro Weg in Z.
+
+    Negativ, wo die Kontur nach vorn hin kleiner wird.
+    """
+    lo_lvl = interp_level(levels, z - delta)
+    hi_lvl = interp_level(levels, z + delta)
+    lo = outline_points(outline, width, height, lo_lvl.scale, lo_lvl.y_offset)
+    hi = outline_points(outline, width, height, hi_lvl.scale, hi_lvl.y_offset)
+    out = []
     for (x0, y0), (x1, y1) in zip(lo, hi):
         ds = math.hypot(x1 - x0, y1 - y0) / (2.0 * delta)
-        factors.append(math.sqrt(1.0 + ds * ds))
-    return factors
+        sign = -1.0 if math.hypot(x1, y1) < math.hypot(x0, y0) else 1.0
+        out.append(sign * ds)
+    return out
 
 
-def inner_points(sections, z: float, wall: float, num_points: int):
-    """Punkte der Kavitaetskontur auf Hoehe z."""
-    pts = superellipse_points(interp_section(sections, z), num_points)
-    factors = taper_factors(sections, z, num_points)
-    return offset_points(pts, [wall * f for f in factors])
+def offset_folds(original, offset) -> int:
+    """Zahl der Kanten, die durch den Versatz ihre Richtung umkehren.
+
+    Groesser als null heisst: die versetzte Kontur hat sich selbst
+    ueberholt. Solche Konturen haben oft noch eine positive Flaeche, fallen
+    einer reinen Flaechenpruefung also nicht auf — sie zerstoeren aber jeden
+    nachfolgenden Loft und jede boolesche Operation darauf.
+    """
+    n = len(original)
+    folds = 0
+    for i in range(n):
+        j = (i + 1) % n
+        ax = original[j][0] - original[i][0]
+        ay = original[j][1] - original[i][1]
+        bx = offset[j][0] - offset[i][0]
+        by = offset[j][1] - offset[i][1]
+        if ax * bx + ay * by < 0.0:
+            folds += 1
+    return folds
+
+
+def level_points(outline, width, height, levels, z: float):
+    """Aussenkontur auf Tiefe z."""
+    lvl = interp_level(levels, z)
+    return outline_points(outline, width, height, lvl.scale, lvl.y_offset)
+
+
+def cavity_level(outline, width, height, levels, z: float, wall: float):
+    """Ebene der Kavitaet als echte Parallelflaeche: (z_neu, punkte).
+
+    Die Haut steht schraeg zur Querschnittsebene. Wer nur INNERHALB der
+    Ebene versetzt, muss das mit 1/cos(theta) ausgleichen — und das waechst
+    nahe am Scheitel ueber alle Grenzen, bis die Kontur sich in sich selbst
+    faltet.
+
+    Die Flaechennormale hat aber auch einen Anteil in Z. Richtig ist daher:
+    in der Ebene um wall*cos(theta) versetzen (also WENIGER als die
+    Wandstaerke) und die Ebene um wall*sin(theta) nach hinten schieben. Am
+    Scheitel laeuft das sauber gegen "kein Versatz in der Ebene, dafuer die
+    volle Wandstaerke nach hinten".
+    """
+    pts = level_points(outline, width, height, levels, z)
+    slopes = _slopes(outline, width, height, levels, z)
+    cos_t = [1.0 / math.sqrt(1.0 + m * m) for m in slopes]
+    mean_m = sum(slopes) / len(slopes)
+    sin_mean = abs(mean_m) / math.sqrt(1.0 + mean_m * mean_m)
+    return z - wall * sin_mean, offset_points(pts, [wall * c for c in cos_t])
+
+
+def surface_x(outline, width, height, levels, y: float, z: float) -> float:
+    """X-Koordinate der Aussenhaut auf der rechten Seite bei (y, z).
+
+    Strahlschnitt von (0, y) nach +X mit dem Konturpolygon. Wird gebraucht,
+    um Anbauten exakt auf die Flanke zu setzen.
+    """
+    pts = level_points(outline, width, height, levels, z)
+    best = 0.0
+    n = len(pts)
+    for i in range(n):
+        x0, y0 = pts[i]
+        x1, y1 = pts[(i + 1) % n]
+        if (y0 - y) * (y1 - y) > 0:            # Kante schneidet die Hoehe nicht
+            continue
+        if abs(y1 - y0) < 1e-12:
+            continue
+        t = (y - y0) / (y1 - y0)
+        x = x0 + t * (x1 - x0)
+        if x > best:
+            best = x
+    return best
+
+
+def bounds(outline, width, height, levels):
+    """Aussenmasse des Lofts: (breite, hoehe, tiefe)."""
+    xs, ys = [], []
+    for lvl in levels:
+        for x, y in outline_points(outline, width, height, lvl.scale, lvl.y_offset):
+            xs.append(x)
+            ys.append(y)
+    return (max(xs) - min(xs), max(ys) - min(ys),
+            levels[-1].z - levels[0].z)

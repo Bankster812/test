@@ -20,13 +20,14 @@ import cadquery as cq  # noqa: E402
 import numpy as np  # noqa: E402
 import trimesh  # noqa: E402
 
-from ktm_mask import blinker  # noqa: E402
+from ktm_mask import blinker, slots  # noqa: E402
 from trimesh.proximity import closest_point_naive  # noqa: E402
 
 from ktm_mask.assembly import (build_mask, fits_on_bed, split_halves,  # noqa: E402
                                volume_mm3)
+from ktm_mask.geometry import surface_x  # noqa: E402
 from ktm_mask.params import MaskParams  # noqa: E402
-from ktm_mask.shell import hollow, outer_solid  # noqa: E402
+from ktm_mask.shell import cavity_solid, outer_solid  # noqa: E402
 
 TOL = 0.35  # zulaessige Abweichung durch die STL-Tesselierung, mm
 
@@ -92,9 +93,16 @@ def crossings(mesh, origin, direction, eps=1e-9):
     return np.array(keep)
 
 
+def inside(mesh, point) -> bool:
+    """Liegt der Punkt im Koerper? Strahl nach aussen, ungerade Zahl von
+    Durchstossen heisst innen."""
+    return len(crossings(mesh, point, (0.317, 0.548, 0.774))) % 2 == 1
+
+
 def run(p: MaskParams) -> Result:
     r = Result()
-    print(f"\nPruefe Modell  (Rueckseite={p.rear_mount_type}, wall={p.wall} mm)")
+    print(f"\nPruefe Modell  ({p.width:.0f} x {p.height:.0f} mm, Wand {p.wall} mm, "
+          f"Rueckseite {p.rear_mount_type})")
 
     for w in p.validate():
         print(f"  hinw  Parameterwarnung: {w}")
@@ -119,9 +127,10 @@ def run(p: MaskParams) -> Result:
     # also senkrecht zur Oberflaeche und nicht achsparallel
     outer = outer_solid(p)
     m_outer = to_mesh(outer, p)
-    m_cav = to_mesh(outer.cut(hollow(p, outer)), p)
+    m_cav = to_mesh(cavity_solid(p), p)
     pts, _ = trimesh.sample.sample_surface(m_outer, 2500, seed=1)
     pts = pts[pts[:, 2] > p.z_rear + 4.0]          # hintere Deckflaeche ignorieren
+    pts = pts[pts[:, 2] < p.z_front - 6.0]         # Scheitel: dort ist es massiv
     _, dist, _ = closest_point_naive(m_cav, pts)
     p1, med = np.percentile(dist, 1), float(np.median(dist))
     r.check("Wandstaerke im Mittel wie eingestellt", abs(med - p.wall) <= 0.3,
@@ -129,35 +138,57 @@ def run(p: MaskParams) -> Result:
     r.check("keine duennen Stellen in der Wand", p1 >= p.wall * 0.7,
             f"1%-Quantil {p1:.2f} mm, min {dist.min():.2f} mm")
 
-    if p.blinker:
+    # --- Blinkerhalter-Aussparungen -----------------------------------------
+    # Die Aussparungen gehen durch die Flanke hindurch — hinter ihnen ist
+    # der Hohlraum, kein Boden. Eine Tiefenmessung per Strahl liefe also ins
+    # Leere. Gemessen wird stattdessen, ob im WANDMATERIAL auf Schlitzhoehe
+    # nichts mehr steht und auf Steghoehe noch etwas steht.
+    if p.slots and p.slot_count > 0:
+        ys = slots.slot_heights(p)
+        z_mid = p.slot_z0 + p.slot_z_len / 2.0
+        z_mid = min(max(z_mid, p.z_rear + 1.0), p.z_front - 1.0)
+
+        def wall_point(y, side):
+            x_edge = surface_x(p.outline_ccw, p.width, p.height,
+                               p.level_objs, y, z_mid)
+            return (side * (x_edge - p.wall * 0.5), y, z_mid)
+
+        open_ok = all(not inside(mesh, wall_point(y, s))
+                      for y in ys for s in (+1, -1))
+        r.check(f"alle {len(ys)} Aussparungen je Seite sind durchgehend frei",
+                open_ok, f"auf Hoehe {', '.join(f'{y:.0f}' for y in ys)} mm")
+
+        webs = [ys[i] + p.slot_pitch / 2.0 for i in range(len(ys) - 1)]
+        webs += [ys[0] - p.slot_pitch, ys[-1] + p.slot_pitch]
+        web_ok = all(inside(mesh, wall_point(y, s))
+                     for y in webs for s in (+1, -1))
+        r.check("Stege zwischen den Aussparungen stehen", web_ok,
+                f"{len(webs)} Stellen geprueft")
+
+        # Die Spendermaske ist auf einer Seite abweichend ausgefuehrt;
+        # uebernommen wird die symmetrische Ausfuehrung der Carbon-Version.
+        sym = all(inside(mesh, wall_point(y, +1)) == inside(mesh, wall_point(y, -1))
+                  for y in ys + webs)
+        r.check("beide Seiten sind gespiegelt gleich", sym,
+                "gleiche Hoehen links wie rechts geprueft")
+
+    # --- optionale Schaftaufnahme -------------------------------------------
+    if p.stalk:
         n = np.array(blinker.axis(p, +1))
         mp = np.array(blinker.mount_point(p, +1))
-
-        # --- Boden der Blinkertasche traegt ---------------------------------
-        # seitlich neben der Schaftbohrung messen, dort darf nichts offen sein
         up = np.array([0.0, 1.0, 0.0])
         tangent = np.cross(n, up)
         tangent /= np.linalg.norm(tangent)
         offset = tangent * (p.pocket_w / 2.0 - p.pocket_margin * 0.5)
         d = crossings(mesh, mp + n * 60.0 + offset, -n)
         if len(d) >= 2:
-            floor = d[1] - d[0]
             r.check("Taschenboden hat Material",
-                    floor >= p.pocket_floor_t - TOL,
-                    f"gemessen {floor:.2f} mm, gefordert {p.pocket_floor_t} mm")
+                    (d[1] - d[0]) >= p.pocket_floor_t - TOL,
+                    f"gemessen {d[1] - d[0]:.2f} mm, "
+                    f"gefordert {p.pocket_floor_t} mm")
         else:
             r.check("Taschenboden hat Material", False,
                     f"Strahl traf {len(d)} Flaechen — Tasche bricht durch")
-
-        # --- Tasche ist so tief wie eingestellt -----------------------------
-        d_pocket = crossings(mesh, mp + n * 60.0 + offset, -n)
-        if len(d_pocket) >= 1:
-            depth = d_pocket[0] - 60.0 + 0.0
-            r.check("Aussparungstiefe stimmt",
-                    abs(depth - p.pocket_depth) <= TOL + 0.4,
-                    f"gemessen {depth:.2f} mm, eingestellt {p.pocket_depth} mm")
-
-        # --- Schaftbohrung geht durch ---------------------------------------
         d = crossings(mesh, mp + n * 60.0, -n)
         r.check("Schaftbohrung ist durchgehend", len(d) <= 2,
                 f"{len(d)} Flaechen auf der Achse (0 oder 2 = frei)")
@@ -171,8 +202,10 @@ def run(p: MaskParams) -> Result:
         whole = volume_mm3(mask)
         total = volume_mm3(right) + volume_mm3(left)
         loss = (whole - total) / whole
-        r.check("Teilung verliert kein Material", 0 <= loss < 0.02,
-                f"{loss * 100:.2f} % Differenz (Steckspiel)")
+        # Zungen und Taschen unterscheiden sich um das Steckspiel, die Summe
+        # darf daher in beide Richtungen leicht abweichen.
+        r.check("Teilung verliert kein Material", abs(loss) < 0.01,
+                f"{loss * 100:+.2f} % Differenz (Steckspiel)")
         bb = right.val().BoundingBox()
         dims = (bb.xlen, bb.ylen, bb.zlen)
         r.check("Haelfte passt aufs Druckbett",
@@ -181,7 +214,7 @@ def run(p: MaskParams) -> Result:
                 f"{p.bed_x:.0f} x {p.bed_y:.0f} x {p.bed_z:.0f} mm")
 
     # --- ECE-Rechenhilfe ----------------------------------------------------
-    if p.blinker:
+    if p.stalk:
         e = blinker.ece_check(p)
         r.check("Blinkerabstand erreicht den Richtwert", e["erfuellt"],
                 f"{e['innenkanten_abstand_mm']} mm (Richtwert "

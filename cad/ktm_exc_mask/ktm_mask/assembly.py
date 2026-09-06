@@ -8,7 +8,7 @@ import cadquery as cq
 from OCP.BRepGProp import BRepGProp
 from OCP.GProp import GProp_GProps
 
-from .geometry import interp_section
+from .geometry import level_points
 from .shell import build_shell, outer_solid
 from . import blinker, features
 
@@ -16,12 +16,12 @@ BIG = 1000.0
 
 
 def build_mask(p) -> cq.Workplane:
-    """Komplette modifizierte EXC-Maske: Grundkoerper plus alle Merkmale."""
+    """Komplette modifizierte Maske: Grundkoerper plus alle Merkmale."""
     outer = outer_solid(p)
     body = build_shell(p, outer=outer)
-    for feat in features.adders(p):
-        body = body.union(feat.solid.intersect(outer) if feat.clip else feat.solid)
-    for feat in features.cutters(p):
+    for feat in features.adders(p, outer=outer):
+        body = body.union(feat.solid)
+    for feat in features.cutters(p, outer=outer):
         body = body.cut(feat.solid)
     return body
 
@@ -56,35 +56,65 @@ def _half_space(x_positive: bool) -> cq.Workplane:
 
 def _tongue_boxes(p, clearance: float = 0.0):
     """Steckzungen entlang der Trennebene x = 0, oben und unten verteilt."""
-    z_front, z_rear = p.section_objs[0].z, p.z_rear
     n = max(1, p.split_tongues)
     boxes = []
     for i in range(n):
         t = (i + 0.5) / n
-        z = z_front + t * (z_rear - z_front)
-        sec = interp_section(p.section_objs, z)
+        z = p.z_rear + t * (p.z_front - p.z_rear)
+        pts = level_points(p.outline_ccw, p.width, p.height, p.level_objs, z)
+        # Ober- bzw. Unterkante der Kontur nahe der Trennebene
+        near = [(x, y) for x, y in pts if abs(x) < p.width * 0.12] or pts
         top = i % 2 == 0
-        y_surface = sec.y_offset + (sec.height / 2.0 if top else -sec.height / 2.0)
+        y_surface = max(y for _, y in near) if top else min(y for _, y in near)
         y_mid = y_surface - (p.wall / 2.0 if top else -p.wall / 2.0)
-        box = (cq.Workplane("XY")
-               .box(2.0 * p.split_tongue_l + 2 * clearance,
-                    p.split_tongue_t + 2 * clearance,
-                    p.split_tongue_w + 2 * clearance)
-               .translate((0.0, y_mid, z)))
-        boxes.append(box)
+        boxes.append(
+            cq.Workplane("XY")
+            .box(2.0 * p.split_tongue_l + 2 * clearance,
+                 p.split_tongue_t + 2 * clearance,
+                 p.split_tongue_w + 2 * clearance)
+            .translate((0.0, y_mid, z)))
     return boxes
+
+
+MIN_TONGUE_VOL = 60.0   # mm^3 — darunter ist es kein Zapfen, sondern ein Splitter
+
+
+def _useful_tongues(p, body, right_space, left_space):
+    """Zungenpositionen, die die Trennebene wirklich ueberbruecken.
+
+    Eine Zunge sitzt an der Ober- oder Unterkante der Kontur. An der
+    gekrummten Unterkante steht direkt an der Trennebene nicht ueberall
+    Material — eine Zunge dort faellt als loser Splitter ab statt die
+    Haelften zu verbinden. Darum wird jede Position vorher geprueft: es
+    muss beiderseits der Trennebene genug Material im Kasten liegen.
+    """
+    keep = []
+    for index, box in enumerate(_tongue_boxes(p, 0.0)):
+        material = box.intersect(body)
+        try:
+            right = volume_mm3(material.intersect(right_space))
+            left = volume_mm3(material.intersect(left_space))
+        except Exception:
+            continue
+        if min(right, left) >= MIN_TONGUE_VOL:
+            keep.append(index)
+    return keep
 
 
 def split_halves(p, body: cq.Workplane):
     """Teilt die Maske an x = 0 in zwei ineinandersteckende Haelften."""
     right_space, left_space = _half_space(True), _half_space(False)
+    usable = _useful_tongues(p, body, right_space, left_space)
+    if not usable:
+        raise ValueError("keine brauchbare Zungenposition gefunden — "
+                         "split_tongues erhoehen oder Masse pruefen")
 
-    tongues = None
-    for b in _tongue_boxes(p, 0.0):
-        tongues = b if tongues is None else tongues.union(b)
-    sockets = None
-    for b in _tongue_boxes(p, p.split_clearance):
-        sockets = b if sockets is None else sockets.union(b)
+    plain = _tongue_boxes(p, 0.0)
+    loose = _tongue_boxes(p, p.split_clearance)
+    tongues, sockets = None, None
+    for index in usable:
+        tongues = plain[index] if tongues is None else tongues.union(plain[index])
+        sockets = loose[index] if sockets is None else sockets.union(loose[index])
 
     tongue_mat = tongues.intersect(body).intersect(left_space)
     right = body.intersect(right_space).union(tongue_mat)
@@ -110,7 +140,7 @@ def report(p, body: cq.Workplane) -> dict:
             f"passt nicht auf das Druckbett ({p.bed_x} x {p.bed_y} x {p.bed_z} mm) "
             "— mit --split in zwei Haelften teilen")
 
-    ece = blinker.ece_check(p) if p.blinker else None
+    ece = blinker.ece_check(p) if p.stalk else None
     if ece and not ece["erfuellt"]:
         warnings.append(
             f"Blinker-Innenabstand {ece['innenkanten_abstand_mm']} mm liegt unter "
@@ -125,6 +155,7 @@ def report(p, body: cq.Workplane) -> dict:
         "koerper": bodies,
         "wandstaerke_mm": p.wall,
         "rueckseite": p.rear_mount_type,
+        "aussparungen_je_seite": p.slot_count if p.slots else 0,
         "passt_aufs_bett": fits,
         "ece_blinker": ece,
         "warnungen": warnings,

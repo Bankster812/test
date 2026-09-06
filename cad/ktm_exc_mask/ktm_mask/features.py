@@ -1,12 +1,11 @@
 """Die uebertragenen Merkmale als Liste — eine Quelle fuer beide Wege.
 
-`build.py` arbeitet damit auf der parametrischen Grundmaske,
-`apply_to_scan.py` mit denselben Koerpern auf einem echten Scan. Was hier
-steht, gilt also fuer beide.
+`build.py` arbeitet damit auf dem parametrischen Grundkoerper,
+`apply_to_scan.py` mit denselben Koerpern auf einem echten Netz.
 
 Ein Merkmal ist entweder anzuformen (Adder) oder abzuziehen (Cutter).
-`clip=True` heisst: der Koerper wird mit der Aussenhaut verschnitten, damit
-er buendig anschliesst statt aus der Flanke zu ragen.
+`clip=True` heisst: beim Scan-Weg wird der Koerper zusaetzlich an der
+Aussenhaut des Scans beschnitten, damit er buendig anschliesst.
 """
 
 from __future__ import annotations
@@ -15,7 +14,8 @@ from dataclasses import dataclass
 
 import cadquery as cq
 
-from . import blinker, rearmount
+from . import blinker, rearmount, slots
+from .shell import outer_solid
 
 
 @dataclass
@@ -25,38 +25,56 @@ class Feature:
     clip: bool = False
 
 
-def adders(p) -> list:
+def adders(p, outer=None) -> list:
     """Anzuformende Koerper, in Reihenfolge."""
+    if outer is None:
+        outer = outer_solid(p)
     out = []
-    if p.blinker:
+
+    pad, _ = rearmount.top_bracket(p, outer)
+    if pad is not None:
+        out.append(Feature("oberer_befestigungsbock", pad, clip=True))
+
+    pads, _ = rearmount.light_bosses(p, outer)
+    if pads is not None:
+        out.append(Feature("scheinwerferdome", pads, clip=True))
+
+    pads, _ = rearmount.tabs(p, outer)
+    if pads is not None:
+        out.append(Feature("befestigungslaschen", pads, clip=True))
+
+    if p.stalk:
         for side, label in ((+1, "rechts"), (-1, "links")):
-            out.append(Feature(f"blinker_verstaerkung_{label}",
+            out.append(Feature(f"schaftverstaerkung_{label}",
                                blinker.reinforcement(p, side), clip=True))
-    kind = p.rear_mount_type
-    if kind == "plate":
-        out.append(Feature("hinterer_rahmen", rearmount.plate(p)))
-    if kind in ("plate", "tabs"):
-        t = rearmount.tabs(p)
-        if t is not None:
-            out.append(Feature("befestigungslaschen", t, clip=(kind == "tabs")))
-    if kind == "strap":
-        pads, _ = rearmount.straps(p)
-        if pads is not None:
-            out.append(Feature("gummiband_verstaerkung", pads, clip=True))
     return out
 
 
-def cutters(p) -> list:
+def cutters(p, outer=None) -> list:
     """Abzuziehende Koerper, in Reihenfolge."""
+    if outer is None:
+        outer = outer_solid(p)
     out = []
-    if p.blinker:
+
+    for name, cutter in slots.cutters(p):
+        out.append(Feature(name, cutter))
+
+    _, hole = rearmount.top_bracket(p, outer)
+    if hole is not None:
+        out.append(Feature("bohrung_befestigungsbock", hole))
+
+    _, holes = rearmount.light_bosses(p, outer)
+    if holes is not None:
+        out.append(Feature("bohrungen_scheinwerferdome", holes))
+
+    _, holes = rearmount.tabs(p, outer)
+    if holes is not None:
+        out.append(Feature("bohrungen_laschen", holes))
+
+    if p.stalk:
         for side, label in ((+1, "rechts"), (-1, "links")):
-            out.append(Feature(f"blinker_aussparung_{label}",
+            out.append(Feature(f"schafttasche_{label}",
                                blinker.pocket_cutter(p, side)))
-            out.append(Feature(f"blinker_bohrungen_{label}",
+            out.append(Feature(f"schaftbohrung_{label}",
                                blinker.hole_cutter(p, side)))
-    if p.rear_mount_type == "strap":
-        _, slots = rearmount.straps(p)
-        if slots is not None:
-            out.append(Feature("gummiband_durchbrueche", slots))
     return out

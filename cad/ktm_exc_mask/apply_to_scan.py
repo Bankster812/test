@@ -114,7 +114,7 @@ def main(argv=None) -> int:
     ap.add_argument("--scale", type=float, default=1.0)
     ap.add_argument("--rotate", help="Grad um X,Y,Z — z. B. 0,0,90")
     ap.add_argument("--translate", help="Verschiebung X,Y,Z in mm")
-    ap.add_argument("--nur", choices=("blinker", "rueckseite", "alles"),
+    ap.add_argument("--nur", choices=("aussparungen", "rueckseite", "alles"),
                     default="alles", help="nur ein Merkmal uebertragen")
     ap.add_argument("--clip", choices=("huelle", "keine"), default="huelle",
                     help="angeformte Felder buendig an der Aussenhaut beschneiden")
@@ -124,10 +124,13 @@ def main(argv=None) -> int:
 
     params_path = Path(args.params)
     p = MaskParams.load(params_path) if params_path.exists() else MaskParams()
-    if args.nur == "blinker":
+    if args.nur == "aussparungen":
         p.rear_mount_type = "none"
+        p.top_bracket = False
+        p.light_boss = False
     elif args.nur == "rueckseite":
-        p.blinker = False
+        p.slots = False
+        p.stalk = False
 
     mesh = repair(load_scan(Path(args.scan)))
     if not mesh.is_watertight:

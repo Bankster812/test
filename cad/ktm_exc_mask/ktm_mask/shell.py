@@ -1,153 +1,151 @@
-"""Grundkoerper der EXC-Maske: Aussenhaut, Kavitaet, Scheinwerferausschnitt."""
+"""Grundkoerper: gewoelbtes Schild, hinten offen, mit Scheinwerferausschnitt."""
 
 from __future__ import annotations
 
 import cadquery as cq
 
-from .geometry import Section, inner_points, superellipse_points
+from .geometry import (cavity_level, level_points, offset_folds,
+                       polygon_area)
+
+MIN_CAVITY_AREA = 40.0    # mm^2 — darunter lohnt keine weitere Ebene
+
+# Die Kavitaet ist ein Loft ueber gut zwanzig Konturen und wird je
+# Wandstaerke mehrfach gebraucht: einmal fuer den Hohlraum, dann noch einmal
+# fuer jede oertliche Aufdickung. Ohne diesen Zwischenspeicher baut sie sich
+# ein halbes Dutzend Mal neu auf.
+_CAVITY_CACHE: dict = {}
 
 
-def section_wire(sec: Section, num_points: int, z: float | None = None):
-    """Geschlossener Spline-Draht eines Querschnitts als CadQuery-Wire."""
-    pts = superellipse_points(sec, num_points)
-    zz = sec.z if z is None else z
-    return (
-        cq.Workplane("XY")
-        .workplane(offset=zz)
-        .spline(pts, periodic=True)
-        .wire()
-        .val()
-    )
+def _wire(pts, z: float, spline: bool):
+    wp = cq.Workplane("XY").workplane(offset=z)
+    wp = wp.spline(pts, periodic=True) if spline else wp.polyline(pts).close()
+    return wp.wire().val()
+
+
+def _level_zs(p, extra_per_gap: int = 3):
+    """Tiefen fuer den Loft — Zwischenebenen glaetten die Woelbung."""
+    zs = []
+    lv = p.level_objs
+    for a, b in zip(lv, lv[1:]):
+        zs.append(a.z)
+        for k in range(1, extra_per_gap + 1):
+            zs.append(a.z + (b.z - a.z) * k / (extra_per_gap + 1))
+    zs.append(lv[-1].z)
+    return zs
 
 
 def outer_solid(p) -> cq.Workplane:
-    """Massiver Aussenkoerper (noch ohne Hohlraum)."""
-    wires = [section_wire(s, p.section_points) for s in p.section_objs]
-    return cq.Workplane(obj=cq.Solid.makeLoft(wires, ruled=False))
+    """Massiver Aussenkoerper — noch ohne Hohlraum."""
+    wires = [
+        _wire(level_points(p.outline_ccw, p.width, p.height, p.level_objs, z),
+              z, p.spline_outline)
+        for z in _level_zs(p)
+    ]
+    # ruled=True, nicht der glatte Loft: der glatte kommt mit der winzigen
+    # Scheitelkontur nicht zurecht und liefert einen Koerper, der sich als
+    # gueltig meldet, bei jeder booleschen Operation aber nichts mehr
+    # zurueckgibt. Die Woelbung entsteht stattdessen ueber die
+    # Zwischenebenen in _level_zs.
+    return cq.Workplane(obj=cq.Solid.makeLoft(wires, ruled=True))
 
 
-def cavity_solid(p) -> cq.Workplane:
+def _cavity_key(p, wall: float):
+    return (tuple(map(tuple, p.outline)), tuple(map(tuple, p.levels)),
+            p.width, p.height, p.spline_outline, round(wall, 6))
+
+
+def cavity_solid(p, wall: float | None = None) -> cq.Workplane:
     """Innenkoerper — wird vom Aussenkoerper abgezogen.
 
-    Beginnt `wall` hinter der Vorderkante (die Stirnflaeche bleibt also
-    stehen) und laeuft hinten ueber die Maske hinaus, damit die Rueckseite
-    offen bleibt. Die Konturen sind echte Parallelkurven zur Aussenhaut.
+    Die Konturen sind echte Parallelflaechen zur Aussenhaut: sie wandern
+    nicht nur nach innen, sondern auch nach hinten (siehe
+    geometry.cavity_level). Hinten laeuft der Koerper ueber die Maske
+    hinaus, damit die Rueckseite offen bleibt.
+
+    Mit `wall` groesser als der Wandstaerke entsteht ein kleinerer
+    Innenkoerper — davon leben alle oertlichen Aufdickungen (Doeme, Boecke).
     """
-    secs = p.section_objs
-    z_front = secs[0].z - p.wall
-    z_back = secs[-1].z - 10.0
+    wall = p.wall if wall is None else wall
+    key = _cavity_key(p, wall)
+    cached = _CAVITY_CACHE.get(key)
+    if cached is not None:
+        return cached
 
-    zs = [z_front]
-    zs += [s.z for s in secs if z_back < s.z < z_front]
-    zs.append(z_back)
+    z_back, back_pts = cavity_level(p.outline_ccw, p.width, p.height,
+                                    p.level_objs, p.z_rear, wall)
+    wires = [_wire(back_pts, z_back - 12.0, p.spline_outline)]
+    last_z = z_back - 12.0
 
-    wires = []
-    for z in zs:
-        pts = inner_points(secs, z, p.wall, p.section_points)
-        wires.append(cq.Workplane("XY").workplane(offset=z)
-                     .spline(pts, periodic=True).wire().val())
-    return cq.Workplane(obj=cq.Solid.makeLoft(wires, ruled=False))
+    for z in _level_zs(p):
+        z_new, pts = cavity_level(p.outline_ccw, p.width, p.height,
+                                  p.level_objs, z, wall)
+        if z_new <= last_z + 1e-6:
+            continue
+        outer_pts = level_points(p.outline_ccw, p.width, p.height,
+                                 p.level_objs, z)
+        if offset_folds(outer_pts, pts) > 0:
+            # Sollte mit der Parallelflaechen-Rechnung nicht mehr vorkommen;
+            # eine gefaltete Kontur wuerde jeden Loft darauf unbrauchbar
+            # machen, deshalb hier abbrechen statt sie einzubauen.
+            break
+        if polygon_area(pts) < MIN_CAVITY_AREA:
+            break
+        wires.append(_wire(pts, z_new, p.spline_outline))
+        last_z = z_new
+
+    if len(wires) < 2:
+        raise ValueError("Kavitaet laesst sich nicht bilden — Wandstaerke "
+                         "zu gross fuer diese Kontur")
+    # dasselbe Verfahren wie beim Aussenkoerper — sonst laufen Aussenhaut
+    # und Kavitaet unterschiedlich und die Wandstaerke schwankt
+    result = cq.Workplane(obj=cq.Solid.makeLoft(wires, ruled=True))
+    _CAVITY_CACHE[key] = result
+    return result
 
 
-def _light_sketch(p):
-    """2D-Umriss des Scheinwerferausschnitts in der XY-Ebene."""
-    if p.light_shape == "round":
-        return cq.Sketch().circle(p.light_d / 2.0)
-    r = min(p.light_r, min(p.light_w, p.light_h) / 2.0 - 1e-6)
-    sk = cq.Sketch().rect(p.light_w, p.light_h)
-    if r > 0:
-        sk = sk.vertices().fillet(r)
-    return sk
+def _rounded_rect(w: float, h: float, r: float) -> cq.Sketch:
+    r = max(0.0, min(r, min(w, h) / 2.0 - 1e-6))
+    sk = cq.Sketch().rect(w, h)
+    return sk.vertices().fillet(r) if r > 0 else sk
 
 
 def light_cutter(p) -> cq.Workplane:
-    """Durchbruch fuer den Scheinwerfer, durch die ganze Stirnwand."""
+    """Durchbruch fuer den Scheinwerfer — hohes Oval im unteren Drittel."""
     return (
         cq.Workplane("XY")
-        .workplane(offset=20.0)
+        .workplane(offset=p.z_front + 30.0)
         .center(0.0, p.light_y)
-        .placeSketch(_light_sketch(p))
-        .extrude(-(20.0 + p.wall + 10.0))
+        .placeSketch(_rounded_rect(p.light_w, p.light_h, p.light_r))
+        .extrude(-(p.depth + 60.0))
     )
 
 
 def light_lip(p) -> cq.Workplane:
-    """Auflagekragen innen: der Scheinwerfer legt sich von hinten dagegen."""
+    """Auflagekragen: der Scheinwerfer legt sich von hinten dagegen."""
     if p.light_lip <= 0.0 or p.light_lip_t <= 0.0:
         return None
-    if p.light_shape == "round":
-        outer = cq.Sketch().circle(p.light_d / 2.0 + p.light_lip)
-    else:
-        r = min(p.light_r + p.light_lip,
-                min(p.light_w, p.light_h) / 2.0 + p.light_lip - 1e-6)
-        outer = cq.Sketch().rect(p.light_w + 2 * p.light_lip,
-                                 p.light_h + 2 * p.light_lip)
-        if r > 0:
-            outer = outer.vertices().fillet(r)
-    # ab der Stirnflaeche aufbauen, nicht ab der Wandrueckseite: eine
-    # Vereinigung auf exakt aufeinanderliegenden Flaechen ist unzuverlaessig
     return (
         cq.Workplane("XY")
-        .workplane(offset=0.0)
+        .workplane(offset=p.z_front + 30.0)
         .center(0.0, p.light_y)
-        .placeSketch(outer)
-        .extrude(-(p.wall + p.light_lip_t))
+        .placeSketch(_rounded_rect(p.light_w + 2 * p.light_lip,
+                                   p.light_h + 2 * p.light_lip,
+                                   p.light_r + p.light_lip))
+        .extrude(-(p.depth + 60.0 - p.light_lip_t))
     )
 
 
-def light_screw_bosses(p):
-    """Schraubdome fuer die Scheinwerferbefestigung: (Material, Bohrungen)."""
-    if p.light_screws <= 0:
-        return None, None
-    import math
-
-    r = p.light_screw_bcd / 2.0
-    bosses, holes = None, None
-    for i in range(p.light_screws):
-        # gleichmaessig verteilt, erster Dom oben
-        a = math.radians(90.0 + 360.0 * i / p.light_screws)
-        x, y = r * math.cos(a), r * math.sin(a) + p.light_y
-        boss = (
-            cq.Workplane("XY").workplane(offset=0.0)
-            .center(x, y).circle(p.light_screw_boss_d / 2.0)
-            .extrude(-(p.wall + p.light_screw_boss_t))
-        )
-        hole = (
-            cq.Workplane("XY").workplane(offset=5.0)
-            .center(x, y).circle(p.light_screw_d / 2.0)
-            .extrude(-(5.0 + p.wall + p.light_screw_boss_t + 2.0))
-        )
-        bosses = boss if bosses is None else bosses.union(boss)
-        holes = hole if holes is None else holes.union(hole)
-    return bosses, holes
-
-
-def hollow(p, outer: cq.Workplane) -> cq.Workplane:
-    """Aushoehlen, Rueckseite offen.
-
-    Bewusst ueber Loft-und-Abziehen statt ueber das Flaechen-Offset des
-    Kernels: dessen Ergebnis meldet sich zwar als gueltig, liefert bei
-    dieser Geometrie aber falsche Volumina und zerstoert nachfolgende
-    boolesche Operationen (Teilung, Verschneidungen).
-    """
-    return outer.cut(cavity_solid(p))
-
-
 def build_shell(p, outer: cq.Workplane | None = None) -> cq.Workplane:
-    """Fertige Grundmaske: Hohlkoerper mit Scheinwerferausschnitt."""
+    """Hohlkoerper mit Scheinwerferausschnitt und Auflagekragen."""
     if outer is None:
         outer = outer_solid(p)
-    body = hollow(p, outer)
+    body = outer.cut(cavity_solid(p))
 
     if p.light_cut:
         lip = light_lip(p)
         if lip is not None:
-            # Kragen nur innerhalb der Maske stehen lassen
+            # Der Kragen wird aus dem Vollen genommen und auf die Aussenhaut
+            # beschnitten; danach schneidet der Durchbruch das Loch hinein.
             body = body.union(lip.intersect(outer))
-        bosses, holes = light_screw_bosses(p)
-        if bosses is not None:
-            body = body.union(bosses.intersect(outer))
         body = body.cut(light_cutter(p))
-        if holes is not None:
-            body = body.cut(holes)
     return body
